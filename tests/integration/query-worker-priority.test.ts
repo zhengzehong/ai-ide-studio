@@ -50,6 +50,7 @@ describe('Query Worker deadline and priority (P0-3a)', () => {
       'sessions.list',
       'sessions.messages',
       'sessions.recovery',
+      'sessions.teamMemberState',
       'tasks.list',
       'tasks.page',
       'widget.sessions.list',

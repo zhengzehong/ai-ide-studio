@@ -6,6 +6,8 @@ import type {
   SessionMessageQuery,
   SessionRecoveryQuery,
   SessionRecoverySnapshot,
+  TeamMemberStateQuery,
+  TeamMemberStateSnapshot,
   TaskListQuery,
   TaskPageQuery,
   WidgetSessionListQuery,
@@ -20,6 +22,7 @@ import {
 import { listTaskPageReadModel, listTaskReadModel } from './task-list-query.js'
 import { listWidgetSessionReadModel } from './widget-session-list-query.js'
 import { readSessionRecovery } from './session-recovery-query.js'
+import { readTeamMemberState } from './team-member-state-query.js'
 import { createChildLogger } from '../core/logger.js'
 
 const DEFAULT_MESSAGE_LIMIT = 100
@@ -96,6 +99,20 @@ export function createDatabaseQueryPort(options: DatabaseQueryPortOptions = {}):
         log.warn(result.diagnostics, 'slow session recovery query completed')
       } else {
         log.debug(result.diagnostics, 'session recovery query completed')
+      }
+      return result.snapshot
+    },
+
+    /**
+     * 团队面板轻量恢复(P1):尾巴扫描 + 未决项候选,不搬历史事件。
+     * 诊断日志与 recovery 同款(>100ms 记 warn),便于对照两条路径的真实成本。
+     */
+    async getTeamMemberState(input: TeamMemberStateQuery): Promise<TeamMemberStateSnapshot> {
+      const result = readTeamMemberState(input)
+      if (result.diagnostics.totalMs >= SLOW_RECOVERY_QUERY_MS) {
+        log.warn(result.diagnostics, 'slow team member state query completed')
+      } else {
+        log.debug(result.diagnostics, 'team member state query completed')
       }
       return result.snapshot
     },

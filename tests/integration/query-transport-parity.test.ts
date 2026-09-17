@@ -172,6 +172,33 @@ describe('QueryPort and WS response parity', () => {
     expect(await callRpc(sessionRecoveryRpcHandlers, 'sessions.recovery', { sessionId: session.id, limit: 20 })).toEqual(recovery)
   })
 
+  test('serves the team member state without shipping history events', async () => {
+    const session = sessionStore.create({ agentId: 'agent-a', projectId: 'project-a' })
+    eventStore.append(session.id, { type: 'permission.request', payload: { permissionRequest: { id: 'perm-1', toolCall: {}, options: [] } } })
+    eventStore.append(session.id, { type: 'usage.update', payload: { usage: { contextSize: 100 } } })
+    eventStore.append(session.id, { type: 'message.user', payload: { content: 'hi' } })
+
+    const state = await callRpc(sessionRecoveryRpcHandlers, 'sessions.teamMemberState', { sessionId: session.id }) as Record<string, unknown>
+
+    expect(state).toEqual({
+      sessionId: session.id,
+      latestSequence: 3,
+      usage: { contextSize: 100 },
+      pendingPermissions: [expect.objectContaining({ id: 'perm-1' })],
+      pendingElicitations: [],
+    })
+    // 轻量端点契约:不回历史事件(旧 sessions.recovery 的 500 条在这里没有位置)
+    expect(state).not.toHaveProperty('events')
+  })
+
+  test('rejects guest team member state requests before reading a session', async () => {
+    const query = vi.spyOn(localQueryPort, 'getTeamMemberState')
+    await expect(sessionRecoveryRpcHandlers['sessions.teamMemberState']({ type: 'sessions.teamMemberState', sessionId: 'private' }, {
+      state: { authMode: 'guest', subscriptions: new Set() }, sendResult: vi.fn(), sendError: vi.fn(), sendOutOfBandError: vi.fn(),
+    })).rejects.toThrow('仅所有者')
+    expect(query).not.toHaveBeenCalled()
+  })
+
   test('rejects guest recovery requests before reading a session', async () => {
     const query = vi.spyOn(localQueryPort, 'getSessionRecovery')
     await expect(sessionRecoveryRpcHandlers['sessions.recovery']({ type: 'sessions.recovery', sessionId: 'private' }, {

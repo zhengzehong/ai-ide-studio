@@ -466,6 +466,11 @@ export interface SessionsRecoveryMsg extends ClientMessage {
   sessionId: string
   limit?: number
 }
+/** 团队面板轻量恢复:每成员只回 latestSequence + usage + 未决项,不带历史事件。 */
+export interface SessionsTeamMemberStateMsg extends ClientMessage {
+  type: 'sessions.teamMemberState'
+  sessionId: string
+}
 export interface SessionsMessageEventsPageMsg extends ClientMessage {
   type: 'sessions.messageEventsPage'
   sessionId: string

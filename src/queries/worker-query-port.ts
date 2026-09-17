@@ -8,6 +8,8 @@ import type {
   SessionMessageQuery,
   SessionRecoveryQuery,
   SessionRecoverySnapshot,
+  TeamMemberStateQuery,
+  TeamMemberStateSnapshot,
   TaskListItem,
   TaskListQuery,
   TaskPage,
@@ -50,6 +52,8 @@ export const DEFAULT_DEADLINES: Record<string, number> = {
   'sessions.messages': 12_000,
   'sessions.events': 12_000,
   'sessions.recovery': 15_000,
+  // 轻量恢复实测 中位 1.1ms / 最大 5.7ms(尾巴 100 条),按普通查询给 12s 兜底足够
+  'sessions.teamMemberState': 12_000,
 }
 
 /** 重查询走 heavy 档:exec 可达 14.7s,放 interactive 会把它后面所有轻查询一起堵住。 */
@@ -237,6 +241,9 @@ export async function createWorkerQueryPort(
     },
     getSessionRecovery(input: SessionRecoveryQuery): Promise<SessionRecoverySnapshot> {
       return request('sessions.recovery', input, input)
+    },
+    getTeamMemberState(input: TeamMemberStateQuery): Promise<TeamMemberStateSnapshot> {
+      return request('sessions.teamMemberState', input, input)
     },
     listWidgetSessions(input: WidgetSessionListQuery): Promise<WidgetSessionListItem[]> {
       return request('widget.sessions.list', {

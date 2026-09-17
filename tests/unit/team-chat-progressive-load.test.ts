@@ -28,15 +28,29 @@ function doneEvent(sequence: number, messageId = AUTO_ID): SessionEventData {
   return { id: `e${sequence}`, session_id: 's1', message_id: messageId, sequence, type: 'message.done', payload_json: JSON.stringify({ messageId, stopReason: 'end_turn' }), created_at: new Date(Date.parse(startedAt) + sequence).toISOString() }
 }
 
+/** P1:基础快照的恢复边界改由轻端点 sessions.teamMemberState 提供(不再拉 500 条历史事件)。 */
+function memberState(latestSequence: number): Record<string, unknown> {
+  return { sessionId: 's1', latestSequence, usage: null, pendingPermissions: [], pendingElicitations: [] }
+}
+
 function mockBase(row: MessageData | null, latestSequence: number): void {
-  vi.spyOn(queryClient, 'getSessionRecovery').mockResolvedValue({ sessionId: 's1', latestSequence, events: [] })
+  vi.spyOn(wsClient, 'request').mockImplementation(async (message: Record<string, unknown>) => {
+    if (message.type === 'sessions.teamMemberState') return memberState(latestSequence)
+    return {}
+  })
   vi.spyOn(queryClient, 'listSessionMessages').mockResolvedValue({ items: row ? [row] : [], hasMore: false, nextCursor: null })
+}
+
+/** 只统计重放类请求,忽略基础快照的轻端点调用。 */
+function replayCalls(rpc: { mock: { calls: unknown[][] } }): unknown[][] {
+  return rpc.mock.calls.filter(([message]) => (message as { type?: string }).type !== 'sessions.teamMemberState')
 }
 
 function mockReplay(events: SessionEventData[], items: unknown[] = []): MockInstance {
   return vi.spyOn(wsClient, 'request').mockImplementation(async (message: Record<string, unknown>) => {
     if (message.type === 'sessions.messageEventsPage') return { items: events, nextSequence: events.at(-1)?.sequence ?? 0, hasMore: false }
     if (message.type === 'sessions.messageProcess') return items
+    if (message.type === 'sessions.teamMemberState') return memberState(5)
     return {}
   })
 }
@@ -49,7 +63,9 @@ describe('team session progressive load (P0-1)', () => {
     const rpc = vi.spyOn(wsClient, 'request')
     const base = await loadTeamSessionBase('view', 's1', 's1', 'Master', 'Master')
 
-    expect(rpc).not.toHaveBeenCalled()
+    // 基础快照只发一次轻端点请求,不产生任何回合重放请求
+    expect(replayCalls(rpc)).toEqual([])
+    expect(rpc).toHaveBeenCalledWith({ type: 'sessions.teamMemberState', sessionId: 's1' })
     expect(base.replay).toEqual({ messageId: AUTO_ID, throughSequence: 5 })
     expect(base.snapshot.messages).toHaveLength(1)
     expect(base.snapshot.streaming?.id).toBe(AUTO_ID)
@@ -65,7 +81,7 @@ describe('team session progressive load (P0-1)', () => {
 
     expect(base.replay).toBeNull()
     expect(base.snapshot.running).toBe(false)
-    expect(rpc).not.toHaveBeenCalled()
+    expect(replayCalls(rpc)).toEqual([])
   })
 
   it('resolves after the base snapshot while the replay backfill keeps running in the background', async () => {
@@ -106,7 +122,10 @@ describe('team session progressive load (P0-1)', () => {
 
   it('reports a failed backfill without failing the delivered base snapshot', async () => {
     mockBase(agentRow(), 5)
-    vi.spyOn(wsClient, 'request').mockRejectedValue(new Error('查询超时'))
+    vi.spyOn(wsClient, 'request').mockImplementation(async (message: Record<string, unknown>) => {
+      if (message.type === 'sessions.teamMemberState') return memberState(5)
+      throw new Error('查询超时')
+    })
     const order: string[] = []
     const failing = loadTeamSessionProgressive('view', 's1', 's1', 'Master', 'Master', {
       isActive: () => true,
@@ -125,6 +144,7 @@ describe('team session progressive load (P0-1)', () => {
     await loadTeamTurnReplay('s1', base.snapshot, base.replay!)
 
     expect(rpc).toHaveBeenCalledWith(expect.objectContaining({ type: 'sessions.messageEventsPage', maxItems: 100, maxBytes: 128 * 1024 }))
+    expect(rpc).toHaveBeenCalledWith({ type: 'sessions.teamMemberState', sessionId: 's1' })
     expect(resolveTurnReplayPageBudget('mobile')).toEqual(MOBILE_TURN_REPLAY_PAGE_BUDGET)
     expect(resolveTurnReplayPageBudget(undefined)).toEqual(PC_TURN_REPLAY_PAGE_BUDGET)
     expect(resolveTurnReplayPageBudget('desktop')).toEqual(PC_TURN_REPLAY_PAGE_BUDGET)

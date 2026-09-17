@@ -6,6 +6,8 @@ import type {
   SessionMessageQuery,
   SessionRecoveryQuery,
   SessionRecoverySnapshot,
+  TeamMemberStateQuery,
+  TeamMemberStateSnapshot,
   TaskListItem,
   TaskListQuery,
   TaskPage,
@@ -135,6 +137,8 @@ export async function createWorkerQueryPool(
       dispatch((port) => port.listSessionEvents(input)),
     getSessionRecovery: (input: SessionRecoveryQuery): Promise<SessionRecoverySnapshot> =>
       dispatch((port) => port.getSessionRecovery(input)),
+    getTeamMemberState: (input: TeamMemberStateQuery): Promise<TeamMemberStateSnapshot> =>
+      dispatch((port) => port.getTeamMemberState(input)),
     listWidgetSessions: (input: WidgetSessionListQuery): Promise<WidgetSessionListItem[]> =>
       dispatch((port) => port.listWidgetSessions(input)),
     inspectAll: (): Promise<QueryWorkerInspection[]> =>

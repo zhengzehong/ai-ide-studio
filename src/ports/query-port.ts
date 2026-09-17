@@ -1,6 +1,7 @@
 import type { MessageRow, SessionEventRow, SessionListRow } from '../store/sessions.js'
 import type { TaskRow } from '../store/tasks.js'
 import type { QueryPriority } from '../data-worker/protocol.js'
+import type { ElicitationRequestData, PermissionRequestData } from '../types/ws-protocol.js'
 
 export interface QueryRequestOptions {
   priority?: QueryPriority
@@ -89,6 +90,19 @@ export interface SessionRecoverySnapshot {
   events: SessionEventRow[]
 }
 
+/** 团队面板轻量恢复:只要 latestSequence + usage + 未决项,不搬历史事件。 */
+export interface TeamMemberStateQuery extends QueryRequestOptions {
+  sessionId: string
+}
+
+export interface TeamMemberStateSnapshot {
+  sessionId: string
+  latestSequence: number
+  usage: Record<string, unknown> | null
+  pendingPermissions: PermissionRequestData[]
+  pendingElicitations: ElicitationRequestData[]
+}
+
 export interface WidgetSessionListQuery extends QueryRequestOptions {
   projectId?: string
   activePromptSessionIds?: string[]
@@ -123,5 +137,6 @@ export interface QueryPort {
   listSessionMessages(input: SessionMessageQuery): Promise<QueryPage<MessageRow>>
   listSessionEvents(input: SessionEventQuery): Promise<QueryPage<SessionEventRow>>
   getSessionRecovery(input: SessionRecoveryQuery): Promise<SessionRecoverySnapshot>
+  getTeamMemberState(input: TeamMemberStateQuery): Promise<TeamMemberStateSnapshot>
   listWidgetSessions(input: WidgetSessionListQuery): Promise<WidgetSessionListItem[]>
 }

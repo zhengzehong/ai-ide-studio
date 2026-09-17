@@ -73,6 +73,7 @@ import { writePathIndexesMigration } from './071-write-path-indexes.js'
 import { teamMemberEffortMigration } from './072-team-member-effort.js'
 import { teamToolBindingsBackfillMigration } from './073-team-tool-bindings-backfill.js'
 import { eventCenterListIndexMigration } from './074-event-center-list-index.js'
+import { sessionEventsPendingIndexMigration } from './075-session-events-pending-index.js'
 
 export const migrations: Migration[] = [
   initialSchemaMigration,
@@ -149,4 +150,5 @@ export const migrations: Migration[] = [
   teamMemberEffortMigration,
   teamToolBindingsBackfillMigration,
   eventCenterListIndexMigration,
+  sessionEventsPendingIndexMigration,
 ]

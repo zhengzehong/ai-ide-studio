@@ -15,6 +15,16 @@ export const sessionRecoveryRpcHandlers: RpcHandlerMap = {
       limit: typeof msg.limit === 'number' ? msg.limit : undefined,
     }))
   },
+  /**
+   * 团队面板轻量恢复(P1):每成员一次,只回 latestSequence + usage + 未决项。
+   * 取代团队面板原先的 `sessions.recovery(limit 500)`(生产实测每成员 553~896KB /
+   * 19~243ms,其中 87%~96% 的字节前端根本不消费)。
+   */
+  async 'sessions.teamMemberState'(msg, { state, sendResult }) {
+    if (state.authMode !== 'owner') throw new Error('仅所有者可恢复会话')
+    if (typeof msg.sessionId !== 'string' || !msg.sessionId.trim()) throw new Error('缺少会话 ID')
+    sendResult(await getQueryPort().getTeamMemberState({ sessionId: msg.sessionId }))
+  },
   'sessions.messageEventsPage'(msg, { state, sendResult }) {
     if (state.authMode !== 'owner') throw new Error('仅所有者可恢复会话')
     const message = typeof msg.messageId === 'string' ? messageStore.get(msg.messageId) : undefined

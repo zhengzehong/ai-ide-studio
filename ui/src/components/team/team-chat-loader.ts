@@ -1,10 +1,19 @@
 import { queryClient } from '../../services/query-client'
 import { wsClient } from '../../services/ws-client'
-import { normalizeMessage, type SessionEventData, type TurnProcessItemInfo } from '../../stores/session-events'
+import { normalizeMessage, type ElicitationRequestInfo, type PermissionRequestInfo, type SessionEventData, type TurnProcessItemInfo, type UsageInfo } from '../../stores/session-events'
 import { turnFromProcessItems } from '../../stores/turn-blocks'
 import { attachTeamAssignments, findPendingTeamAssignment, mapTeamMessage } from './team-chat-assignments'
-import { emptySnapshot, mergeProcessItem, reduceRecovery, remapEvent, restoreTeamSnapshot, type Snapshot } from './team-chat-state'
+import { emptySnapshot, mergeProcessItem, restoreTeamSnapshot, type Snapshot } from './team-chat-state'
 import { shareTeamRequest, type SourceMessage } from './team-view-cache'
+
+/** 团队面板轻量恢复响应(P1):只带 latestSequence + usage + 未决项,不带历史事件。 */
+interface TeamMemberStateResponse {
+  sessionId: string
+  latestSequence: number
+  usage: UsageInfo | null
+  pendingPermissions: PermissionRequestInfo[]
+  pendingElicitations: ElicitationRequestInfo[]
+}
 
 export interface LoadedTeamSession { snapshot: Snapshot; sources: Map<string, SourceMessage> }
 
@@ -35,27 +44,46 @@ export function loadTeamMessagePage(scope: string, sessionId: string, masterSess
 }
 
 /**
- * 装载第一阶段:恢复边界 + 消息页。不做运行中回合的事件重放——消息页先交给 UI 渲染,
+ * 装载第一阶段:轻量恢复 + 消息页。不做运行中回合的事件重放——消息页先交给 UI 渲染,
  * 重放计划(若存在)由 loadTeamTurnReplay 后台补齐,避免长回合的串行翻页拖住"加载中"。
+ *
+ * P1(2026-09-17):原来的 `sessions.recovery(limit 500)` 每成员要搬 553~896KB / 19~243ms,
+ * 而这里真正消费的只有 usage / pendingPermissions / pendingElicitations / latestSequence
+ * (其余 87%~96% 是历史 message.user、commands.update、config.update、lifecycle.*)。
+ * 换成轻端点后每成员 ≈1ms / ≈2KB,消息页照旧(20 条),首屏可见范围与改造前完全一致。
  */
 export function loadTeamSessionBase(scope: string, sessionId: string, masterSessionId: string, name: string, role: string): Promise<LoadedTeamSessionBase> {
   return shareTeamRequest(`messages:${scope}:${sessionId}`, async () => {
-    // Recovery boundary precedes the message snapshot; subsequent live events
+    // 恢复边界 precedes the message snapshot; subsequent live events
     // are merged by sequence in TeamChatPane.
-    const recovery = await queryClient.getSessionRecovery({ sessionId, limit: 500 })
+    const memberState = await requestTeamMemberState(sessionId)
     const page = await loadTeamMessagePage(scope, sessionId, masterSessionId, name, role)
     const { sources } = page
     const mapped = page.snapshot.messages
     const decorated = attachTeamAssignments(mapped)
-    const reduced = recovery.events.length ? reduceRecovery(recovery.events) : null
     const active = decorated.messages.filter(message => message.role === 'agent' && message.status === 'running').at(-1)
     const pendingAssignment = active?.teamAssignment || findPendingTeamAssignment(mapped)
-    const base: Snapshot = { ...emptySnapshot(sessionId), senderName: name, messages: decorated.messages, events: recovery.events.map(event => remapEvent(event, sessionId, masterSessionId)), pendingAssignment, permissions: reduced?.pendingPermissions || [], elicitations: reduced?.pendingElicitations || [], usage: reduced?.usage || null, hasMore: page.snapshot.hasMore }
+    const base: Snapshot = {
+      ...emptySnapshot(sessionId),
+      senderName: name,
+      messages: decorated.messages,
+      // 轻端点不再回历史事件(note: 事件里不含 chunk,原本也无法重建正文);实时事件仍照常并入。
+      events: [],
+      pendingAssignment,
+      permissions: memberState.pendingPermissions,
+      elicitations: memberState.pendingElicitations,
+      usage: memberState.usage,
+      hasMore: page.snapshot.hasMore,
+    }
     // 无重放事件:streaming 先由消息页的 running 行兜底(replaySequence 仍钉在恢复边界,
     // 重放范围内的事件不会被实时流重复应用)。
-    const snapshot = restoreTeamSnapshot(base, [], recovery.latestSequence)
-    return { snapshot, sources, replay: active ? { messageId: active.id.slice(sessionId.length + 1), throughSequence: recovery.latestSequence } : null }
+    const snapshot = restoreTeamSnapshot(base, [], memberState.latestSequence)
+    return { snapshot, sources, replay: active ? { messageId: active.id.slice(sessionId.length + 1), throughSequence: memberState.latestSequence } : null }
   })
+}
+
+function requestTeamMemberState(sessionId: string): Promise<TeamMemberStateResponse> {
+  return wsClient.request({ type: 'sessions.teamMemberState', sessionId }) as Promise<TeamMemberStateResponse>
 }
 
 /** 装载第二阶段(后台):运行中回合的事件分页 + 过程项,产出可并入当前状态的快照。 */

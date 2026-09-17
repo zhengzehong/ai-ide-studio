@@ -1117,6 +1117,42 @@ export const eventStore = {
   },
 
   /**
+   * 会话事件尾巴(P0 轻量恢复):纯 `ORDER BY sequence DESC LIMIT n`,没有 type 过滤,
+   * 因此走 idx_session_events_session_sequence 的顺序倒扫,不做任何索引外过滤。
+   *
+   * 为什么不用 `WHERE type='usage.update' ORDER BY sequence DESC LIMIT 1`:
+   * 该表 message.chunk 占绝对多数,没有 (session_id,type,sequence) 索引时,
+   * 后者要沿索引倒扫过成千上万条 chunk 才能碰到一条目标事件 —— 生产实测中位 369ms,
+   * 比原先的批量 listRecovery 还慢。取尾巴 + 应用层归约实测中位 1.1ms。
+   */
+  listRecent(sessionId: string, limit: number): SessionEventRow[] {
+    return getDb().prepare<{ sessionId: string; limit: number }, SessionEventRow>(`
+      SELECT * FROM session_events
+      WHERE session_id = @sessionId
+      ORDER BY sequence DESC
+      LIMIT @limit
+    `).all({ sessionId, limit }).reverse()
+  },
+
+  /**
+   * 未决项候选事件(P0 轻量恢复):只取 permission/elicitation 四个类型,按 sequence 升序。
+   * 挂起的请求可能埋在很深的历史里(生产实测一条在倒数第 729 条),尾巴扫描看不到,
+   * 因此用迁移 075 的部分索引单独取——该索引只覆盖这四类,代价与历史长度无关。
+   *
+   * 只取尾部 `limit` 条候选(默认 500):真正的挂起请求会阻塞该成员的回合,
+   * 不可能"旧到 500 条 permission 事件之前还没被处理"。
+   */
+  listPendingCandidates(sessionId: string, limit = 500): SessionEventRow[] {
+    return getDb().prepare<{ sessionId: string; limit: number }, SessionEventRow>(`
+      SELECT * FROM session_events
+      WHERE session_id = @sessionId
+        AND type IN ('permission.request','permission.result','elicitation.request','elicitation.result')
+      ORDER BY sequence DESC
+      LIMIT @limit
+    `).all({ sessionId, limit }).reverse()
+  },
+
+  /**
    * 按 messageId 取消息正文分片(sequence 升序),仅供"终稿只读还原"使用。
    * 不走 listByMessage 的回合边界启发式:迟到/错位终帧可能切在分片中间,
    * 还原必须拿到该 messageId 的全部 message.chunk(2026-09-17 sess-d83044f2 事故)。

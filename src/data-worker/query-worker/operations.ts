@@ -58,6 +58,8 @@ export async function executeQueryOperation(
       return queryPort.listSessionEvents(requireSessionId(payload))
     case 'sessions.recovery':
       return queryPort.getSessionRecovery(requireSessionId(payload))
+    case 'sessions.teamMemberState':
+      return queryPort.getTeamMemberState(asObject(payload) as { sessionId: string })
     case 'widget.sessions.list':
       return queryPort.listWidgetSessions(asObject(payload))
     case 'worker.inspect':
