@@ -6,8 +6,49 @@ const log = createChildLogger('prompt-diagnostics')
 
 const PROMPT_WATCHDOG_MS = readPositiveMs(process.env.PROMPT_WATCHDOG_MS, 60_000)
 const PROMPT_WATCHDOG_INTERVAL_MS = readPositiveMs(process.env.PROMPT_WATCHDOG_INTERVAL_MS, 30_000)
+const DEFAULT_STUCK_RECOVER_MS = 30 * 60 * 1000
+/** 自动收敛的最小阈值:低于 30 分钟一律按 30 分钟(活回合长静默是真实存在的)。 */
+const MIN_STUCK_RECOVER_MS = 30 * 60 * 1000
 const activePromptDiagnostics = new Map<string, PromptDiagnosticState>()
 let promptWatchdogTimer: ReturnType<typeof setInterval> | null = null
+
+/**
+ * 卡死自愈(分级,2026-09-17 sess-d83044f2 事故):
+ * - 级别 a(人工):会话详情里"强制结束/恢复"由 sessions.forceFinishPrompt 提供,不依赖这里;
+ * - 级别 b(自动,默认关闭):必须同时满足"存在排队消息" + "无任何流事件/心跳 ≥ autoRecoverSilentMs"。
+ *   本案反例:活着的回合可以静默 2h08m 后仍产出真答案——因此自动动作必须保守,
+ *   且真正的安全垫是"终稿可从 session_events 只读还原"(message-recovery)。
+ */
+export interface PromptWatchdogHooks {
+  /** 该会话是否有排队等待的提示(只有卡死才会积压,长工具不会)。 */
+  hasQueuedMessages?: (sessionId: string) => boolean
+  /** 与死亡清理同一条路径:置终态 + 清 activePrompt + drain 队列。 */
+  forceFinish?: (sessionId: string, reason: 'watchdog') => void
+}
+
+export interface PromptWatchdogSettings {
+  autoRecoverEnabled: boolean
+  autoRecoverSilentMs: number
+}
+
+const settings: PromptWatchdogSettings = {
+  autoRecoverEnabled: false,
+  autoRecoverSilentMs: readPositiveMs(process.env.PROMPT_STUCK_RECOVER_MS, DEFAULT_STUCK_RECOVER_MS),
+}
+const hooks: PromptWatchdogHooks = {}
+
+/** 由 app 启动时注入配置开关、由 sessions 注入队列/收敛回调(避免 core 内循环依赖)。 */
+export function configurePromptWatchdog(update: {
+  autoRecoverEnabled?: boolean
+  autoRecoverSilentMs?: number
+  hooks?: PromptWatchdogHooks
+}): void {
+  if (update.autoRecoverEnabled !== undefined) settings.autoRecoverEnabled = update.autoRecoverEnabled
+  if (update.autoRecoverSilentMs !== undefined && update.autoRecoverSilentMs > 0) {
+    settings.autoRecoverSilentMs = Math.max(MIN_STUCK_RECOVER_MS, update.autoRecoverSilentMs)
+  }
+  if (update.hooks) Object.assign(hooks, update.hooks)
+}
 
 export interface PromptDiagnosticState {
   turnId: string
@@ -17,7 +58,11 @@ export interface PromptDiagnosticState {
   startedAt: number
   lastProgressAt: number
   lastProgress: string
+  /** 最后一次工具心跳(tool-heartbeat);只作自动收敛的否决信号,不参与告警节奏。 */
+  lastHeartbeatAt?: number
   warnedAt?: number
+  /** 已触发过自动收敛,等待生效期间不再重复触发。 */
+  stuckActionAt?: number
 }
 
 export function createTurnId(): string {
@@ -34,6 +79,20 @@ export function recordPromptProgress(sessionId: string, progress: string): void 
   if (!state) return
   state.lastProgressAt = Date.now()
   state.lastProgress = progress
+}
+
+/**
+ * 工具心跳(live tool 仍在推进)单独记录:不刷新 lastProgressAt(告警节奏保持),
+ * 但会让看门狗自动收敛对"还在跑的长工具"投否决票。
+ */
+export function recordPromptHeartbeat(sessionId: string): void {
+  const state = activePromptDiagnostics.get(sessionId)
+  if (!state) return
+  state.lastHeartbeatAt = Date.now()
+}
+
+export function getPromptDiagnosticState(sessionId: string): PromptDiagnosticState | undefined {
+  return activePromptDiagnostics.get(sessionId)
 }
 
 export function finishPromptDiagnostics(sessionId: string, reason: SessionActivityReason): void {
@@ -105,21 +164,48 @@ function runPromptWatchdog(): void {
   for (const state of activePromptDiagnostics.values()) {
     const activeForMs = now - state.startedAt
     const idleForMs = now - state.lastProgressAt
-    if (idleForMs < PROMPT_WATCHDOG_MS) continue
-    if (state.warnedAt && now - state.warnedAt < PROMPT_WATCHDOG_MS) continue
-    state.warnedAt = now
-    log.warn(
-      {
-        sessionId: state.sessionId,
-        agentId: state.agentId,
-        projectId: state.projectId,
-        turnId: state.turnId,
-        activeForMs,
-        idleForMs,
-        lastProgress: state.lastProgress,
-        lastProgressAt: new Date(state.lastProgressAt).toISOString(),
-      },
-      'active prompt watchdog warning',
-    )
+    if (idleForMs >= PROMPT_WATCHDOG_MS && !(state.warnedAt && now - state.warnedAt < PROMPT_WATCHDOG_MS)) {
+      state.warnedAt = now
+      log.warn(
+        {
+          sessionId: state.sessionId,
+          agentId: state.agentId,
+          projectId: state.projectId,
+          turnId: state.turnId,
+          activeForMs,
+          idleForMs,
+          lastProgress: state.lastProgress,
+          lastProgressAt: new Date(state.lastProgressAt).toISOString(),
+        },
+        'active prompt watchdog warning',
+      )
+    }
+    maybeAutoRecover(state, now, idleForMs)
   }
+}
+
+/** 级别 b 自动收敛:保守三条件(排队积压 + 流事件静默 + 心跳静默),默认关闭。 */
+function maybeAutoRecover(state: PromptDiagnosticState, now: number, idleForMs: number): void {
+  if (!settings.autoRecoverEnabled || state.stuckActionAt !== undefined) return
+  if (idleForMs < settings.autoRecoverSilentMs) return
+  if (state.lastHeartbeatAt !== undefined && now - state.lastHeartbeatAt < settings.autoRecoverSilentMs) return
+  if (!hooks.hasQueuedMessages?.(state.sessionId)) return
+  if (!hooks.forceFinish) return
+  state.stuckActionAt = now
+  log.warn(
+    {
+      sessionId: state.sessionId,
+      agentId: state.agentId,
+      projectId: state.projectId,
+      turnId: state.turnId,
+      activeForMs: now - state.startedAt,
+      idleForMs,
+      silentMs: settings.autoRecoverSilentMs,
+      lastProgress: state.lastProgress,
+      lastProgressAt: new Date(state.lastProgressAt).toISOString(),
+      lastHeartbeatAt: state.lastHeartbeatAt !== undefined ? new Date(state.lastHeartbeatAt).toISOString() : null,
+    },
+    'active prompt stuck with queued messages; forcing finish (auto recover)',
+  )
+  hooks.forceFinish(state.sessionId, 'watchdog')
 }

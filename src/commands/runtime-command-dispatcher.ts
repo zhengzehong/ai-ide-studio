@@ -186,6 +186,8 @@ function commandLane(command: RuntimeCommandRecord): string {
       lane = 'interaction'
       break
     case 'session.cancel':
+    case 'session.forceFinish':
+      // 与 cancel 同一条独立泳道:卡死回合自己占着 turn 泳道,强制结束命令不能排在它后面。
       lane = 'cancel'
       break
     case 'sessions.markRead':

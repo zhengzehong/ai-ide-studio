@@ -16,6 +16,7 @@ interface SessionWriteState {
 
 class TurnProcessWriteQueue {
   private readonly sessions = new Map<string, SessionWriteState>()
+  private readonly snapshotDropWarned = new Set<string>()
 
   upsert(
     input: TurnProcessItemWriteInput,
@@ -39,7 +40,8 @@ class TurnProcessWriteQueue {
 
   snapshot(sessionId: string, messageId: string, content: string): void {
     this.enqueue(sessionId, async () => {
-      await sessionPersistencePort.updateRunningSnapshot(sessionId, messageId, content)
+      const changes = await sessionPersistencePort.updateRunningSnapshot(sessionId, messageId, content)
+      if (changes === 0) this.warnSnapshotDropped(sessionId, messageId)
     })
   }
 
@@ -54,6 +56,26 @@ class TurnProcessWriteQueue {
 
   reset(): void {
     this.sessions.clear()
+  }
+
+  /**
+   * 快照被写入侧守卫拦截(行已终态)时留痕:迟到内容只存在于 session_events,
+   * 静默丢弃会让"真终稿丢失"不可观测(2026-09-17 sess-d83044f2 事故)。
+   * 同一 messageId 只 warn 一次,重复降为 debug,避免长回合刷屏。
+   */
+  private warnSnapshotDropped(sessionId: string, messageId: string): void {
+    const key = `${sessionId}:${messageId}`
+    const first = !this.snapshotDropWarned.has(key)
+    if (this.snapshotDropWarned.size > 1000) this.snapshotDropWarned.clear()
+    this.snapshotDropWarned.add(key)
+    if (first) {
+      log.warn(
+        { sessionId, messageId },
+        'running snapshot dropped: message row already terminal; late content remains only in session events',
+      )
+    } else {
+      log.debug({ sessionId, messageId }, 'running snapshot dropped (repeat)')
+    }
   }
 
   private enqueueItem(

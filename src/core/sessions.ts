@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { beginDeviceOrigin, endDeviceOrigin } from '../devices/prompt-origin.js'
 import { sessionStore, messageStore, eventStore, type SessionRow } from '../store/sessions.js'
+import { QUEUED_PROMPT_STAGE } from '../store/session-runtime-state.js'
 import { taskStore } from '../store/tasks.js'
 import { agentStore } from '../store/agents.js'
 import { globalAssistantStore } from '../store/global-assistant.js'
@@ -17,13 +18,17 @@ import { agentHubService } from './agent-hub/index.js'
 import { assertSessionManageable } from './session-manage-guard.js'
 import type { ImageAttachment, SessionActivityReason, SessionActivityState, SessionUpdateData } from '../types/ws-protocol.js'
 import { createPendingTurn, finalizePendingTurn, updatePendingTurn, type PendingTurn } from './turn-finalizer.js'
+import { resolveTerminalAttribution } from './terminal-attribution.js'
+import { recoverMessageDraftFromEvents } from './message-recovery.js'
 import { buildTeamLeaderPrompt } from './team-prompts.js'
 import { resolveVisiblePlatformTools } from '../tools/registry/visibility-resolver.js'
 import { eventPayloadFromUpdate } from './session-event-payload.js'
 import { SessionUpdateBatcher, type SessionUpdateEnvelope } from './session-update-batcher.js'
 import {
+  configurePromptWatchdog,
   createTurnId,
   finishPromptDiagnostics,
+  getPromptDiagnosticState,
   getPromptTurnId,
   recordPromptProgress,
   startPromptDiagnostics,
@@ -33,6 +38,7 @@ import {
 import {
   completeTurnProcess,
   createAgentMessageId,
+  getActiveTurnMessageId,
   recordTurnProcessUpdate,
   startTurnProcess,
 } from './turn-process-runtime.js'
@@ -186,10 +192,32 @@ async function finalizeSessionMessage(ev: AppEvents['session:done']): Promise<vo
       ? 'cancelled'
       : 'completed'
   const processResult = await completeTurnProcess(ev.sessionId, processStatus)
-  const finalMessageId = processResult.messageId ?? finalized?.messageId ?? ev.messageId
+  // 归属:事件 messageId 权威;活跃过程/待终稿的 id 只决定"内容取自哪",绝不改变落库行
+  // (2026-09-17 sess-d83044f2 误归属事故,见 terminal-attribution.ts)。
+  const attribution = resolveTerminalAttribution({
+    eventMessageId: ev.messageId,
+    processMessageId: processResult.messageId,
+    hasPendingContent: finalized !== null,
+    pendingMessageId: finalized?.messageId,
+  })
+  const finalMessageId = attribution.messageId
+  if (attribution.mismatch) {
+    log.warn(
+      {
+        sessionId: ev.sessionId,
+        agentId: ev.agentId,
+        turnId,
+        eventMessageId: ev.messageId,
+        processMessageId: processResult.messageId,
+        pendingMessageId: finalized?.messageId,
+        stopReason: ev.stopReason,
+      },
+      'terminal messageId mismatch; attributing to event messageId',
+    )
+  }
 
-  if (finalized) {
-    const finalContent = processResult.finalAnswer || finalized.content
+  if (finalized && attribution.usePendingContent) {
+    const finalContent = (attribution.useProcessContent ? processResult.finalAnswer : undefined) || finalized.content
     await commitFinalMessage(ev, {
       messageId: finalMessageId,
       content: finalContent,
@@ -199,7 +227,7 @@ async function finalizeSessionMessage(ev: AppEvents['session:done']): Promise<vo
       progress: 'message.finalized',
       logMessage: 'agent message finalized',
     })
-  } else if (processResult.messageId && !(ev.stopReason === 'error' && ev.error)) {
+  } else if (attribution.useProcessContent && !(ev.stopReason === 'error' && ev.error)) {
     await commitFinalMessage(ev, {
       messageId: finalMessageId,
       content: processResult.finalAnswer ?? '',
@@ -217,13 +245,42 @@ async function finalizeSessionMessage(ev: AppEvents['session:done']): Promise<vo
       logMessage: 'agent error message finalized',
     })
   } else {
-    await sessionPersistencePort.commitMutations(ev.sessionId, 'critical', [{
-      type: 'session.stage.clear-running',
-      sessionId: ev.sessionId,
-      timestamp: new Date().toISOString(),
-    }])
-    log.debug({ sessionId: ev.sessionId, agentId: ev.agentId, turnId, messageId: ev.messageId, stopReason: ev.stopReason }, 'session done without finalizable message')
-    recordPromptProgress(ev.sessionId, 'message.finalize.skipped')
+    // 没有任何与归属行同源的聚合内容。行仍在 running 时必须置终态(否则留下永久僵尸行,
+    // 写侧守卫还会静默丢弃后续快照);行不存在时保持旧行为(只清 stage),两者都留痕。
+    const existing = messageStore.get(finalMessageId)
+    if (existing?.status === 'running') {
+      // 只读还原:该回合的流式分片可能还在事件流里(行被守卫拒收 → 内容只在那里),
+      // 终态写入前先按 messageId 合并,避免"回答内容消失"。
+      const recovered = recoverMessageDraftFromEvents(ev.sessionId, finalMessageId)
+      log.warn(
+        {
+          sessionId: ev.sessionId,
+          agentId: ev.agentId,
+          turnId,
+          messageId: finalMessageId,
+          stopReason: ev.stopReason,
+          pendingMessageId: finalized?.messageId,
+          processMessageId: processResult.messageId,
+          recoveredChunks: recovered?.chunkCount ?? 0,
+        },
+        'session done without content matching the terminal row; finalizing with recovered event stream',
+      )
+      await commitFinalMessage(ev, {
+        messageId: finalMessageId,
+        content: recovered?.content ?? '',
+        processStatus,
+        progress: 'message.empty.finalized',
+        logMessage: 'agent message finalized without matching content',
+      })
+    } else {
+      await sessionPersistencePort.commitMutations(ev.sessionId, 'critical', [{
+        type: 'session.stage.clear-running',
+        sessionId: ev.sessionId,
+        timestamp: new Date().toISOString(),
+      }])
+      log.debug({ sessionId: ev.sessionId, agentId: ev.agentId, turnId, messageId: finalMessageId, stopReason: ev.stopReason }, 'session done without finalizable message')
+      recordPromptProgress(ev.sessionId, 'message.finalize.skipped')
+    }
   }
   const updated = sessionStore.get(ev.sessionId)
   if (updated) events.emit('session:changed', { sessionId: ev.sessionId, data: { ...updated } })
@@ -489,11 +546,17 @@ function enqueueSessionPrompt(
   source: QueuedPrompt['source'] = 'platform',
 ): Promise<void> {
   const projectId = resolvePromptProjectId(session, options)
+  // 排队可见性:进入队列时若会话已有未完成回合,先把"排队中"写进会话 stage
+  // (列表/时间线/移动端直接可见;drain 时被 lifecycle.prompt_received 覆盖,终态清理兜底)。
+  const waitingBehindActiveTurn = activePrompts.has(session.id) || promptBatcher.hasPending(session.id)
   const completion = promptBatcher.enqueue(session.id, {
     batchKey: options.batchKey ?? projectId ?? '__default__',
     dedupeKey: options.dedupeKey ?? (options.clientMessageId ? `message:${options.clientMessageId}` : undefined),
     value: { content, images, options, projectId, source, intent: options.intent },
   })
+  if (waitingBehindActiveTurn && sessionStore.get(session.id)?.stage !== QUEUED_PROMPT_STAGE) {
+    emitLifecycle(session.agent_id, session.id, 'lifecycle.prompt_queued', QUEUED_PROMPT_STAGE)
+  }
   schedulePromptBatchDrain(session.id)
   return completion
 }
@@ -526,6 +589,80 @@ function schedulePromptBatchDrain(sessionId: string): void {
     })
   })
 }
+
+export interface ForceFinishPromptResult {
+  finished: boolean
+  turnId?: string
+  messageId?: string
+  /** 没有挂起回合(或会话不存在)时为 not-active。 */
+  skipped?: 'not-active'
+}
+
+/**
+ * 强制结束挂起回合(人工一键 / 看门狗自动,2026-09-17 sess-d83044f2 事故修复)。
+ * 与运行时死亡触发的清理同一条路径,顺序:
+ *   1) 运行时侧收敛回合(ACP cancel → 关会话 → 重启 Agent,全部有上限,不会无限等待);
+ *   2) 正常 session:done 链置终态(归属严格按 messageId,行已终态时写入被守卫拦截并留痕);
+ *   3) 清 activePrompt + 结束诊断 + 放行队列(死亡清理同款收尾)。
+ * 注意:结束一个"仍活着但静默"的回合会丢掉它后续可能产出的内容——真正的兜底是
+ * message-recovery 从 session_events 只读还原已产出的部分;因此自动触发的条件必须保守。
+ */
+export async function forceFinishPrompt(
+  sessionId: string,
+  reason: 'manual' | 'watchdog' = 'manual',
+): Promise<ForceFinishPromptResult> {
+  const session = sessionStore.get(sessionId)
+  if (!session) return { finished: false, skipped: 'not-active' }
+  const state = getPromptDiagnosticState(sessionId)
+  if (!activePrompts.has(sessionId) && !state) return { finished: false, skipped: 'not-active' }
+  const turnId = state?.turnId ?? getPromptTurnId(sessionId)
+  const messageId = getActiveTurnMessageId(sessionId)
+  log.warn({ sessionId, agentId: session.agent_id, turnId, messageId, reason }, 'force finishing active prompt')
+
+  // 1) 先收敛运行时回合,避免随后 drain 的新回合撞上 Runtime turn already active。
+  await getRuntimePort().cancelPrompt(session.agent_id, sessionId).catch((err: unknown) => {
+    log.warn(
+      { err, sessionId, agentId: session.agent_id, turnId },
+      'runtime cancel failed during force finish; releasing platform state anyway',
+    )
+  })
+
+  // 2) 置终态(正常归属链;若该行已是终态,写入侧守卫会拦截,上层留痕)。
+  if (messageId) {
+    events.emit('session:done', {
+      sessionId,
+      agentId: session.agent_id,
+      messageId,
+      turnId,
+      stopReason: 'cancelled',
+    })
+    await sessionManager.waitForPersistence(sessionId).catch((err: unknown) => {
+      log.warn({ err, sessionId, turnId, messageId }, 'force finish terminal persistence failed')
+    })
+  }
+
+  // 3) 清挂起 + 放行队列(死亡清理同款)。
+  activePrompts.delete(sessionId)
+  finishPromptDiagnostics(sessionId, 'prompt-cancelled')
+  emitSessionActivity(sessionId, session.agent_id, 'idle', 'prompt-cancelled', turnId)
+  schedulePromptBatchDrain(sessionId)
+  log.warn(
+    { sessionId, agentId: session.agent_id, turnId, messageId, reason },
+    'active prompt force-finished; queued messages released',
+  )
+  return { finished: true, turnId, messageId }
+}
+
+// 看门狗自动收敛(级别 b)的回调注入:队列判据与收敛动作都由本模块提供,
+// prompt-diagnostics 只负责节奏与条件判断(避免 core 模块间循环依赖)。
+configurePromptWatchdog({
+  hooks: {
+    hasQueuedMessages: (sessionId) => promptBatcher.hasPending(sessionId),
+    forceFinish: (sessionId) => {
+      void forceFinishPrompt(sessionId, 'watchdog')
+    },
+  },
+})
 
 function resolvePromptProjectId(session: SessionRow, options: PromptOptions): string | undefined {
   const sessionProjectId = session.project_id ?? undefined
@@ -730,8 +867,10 @@ async function sendPromptBatchNow(session: SessionRow, inputs: QueuedPrompt[]): 
         },
         'prompt rejected after agent message reached terminal state; skipping duplicate terminal',
       )
-      if (terminalMessage.status === 'completed') {
-        activityEndReason = 'prompt-done'
+      if (terminalMessage.status === 'completed' || terminalMessage.status === 'cancelled') {
+        // cancelled:人工/看门狗强制收敛后运行时的迟到响应,同样按"重复终态"吞掉,
+        // 不把已收干的行改写成 failed。
+        activityEndReason = terminalMessage.status === 'cancelled' ? 'prompt-cancelled' : 'prompt-done'
         recordPromptProgress(sessionId, 'prompt.late_error_ignored')
         return
       }

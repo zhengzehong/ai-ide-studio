@@ -1,5 +1,6 @@
 import type * as acp from '@agentclientprotocol/sdk'
 import { createChildLogger } from '../shared/logger.js'
+import { recordPromptHeartbeat } from '../core/prompt-diagnostics.js'
 import { hasMeaningfulToolTitle } from '../core/tool-title.js'
 import { shouldCreateToolFromUpdate } from '../core/tool-calls.js'
 import type { ToolCallData } from '../types/ws-protocol.js'
@@ -55,6 +56,8 @@ export class ToolHeartbeatTracker {
         log.info({ ...this.context, parentId }, 'Tool heartbeats associated with existing call')
       }
       log.debug({ ...this.context, toolCallId: update.toolCallId, parentId }, 'Tool heartbeat received')
+      // 心跳是"回合仍活着"的独立证据:看门狗自动收敛(级别 b)对它投否决票。
+      recordPromptHeartbeat(this.context.sessionId)
       parent.status = 'in_progress'
       return { id: parentId, title: parent.title, status: 'in_progress' }
     }

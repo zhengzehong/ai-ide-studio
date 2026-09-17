@@ -1,6 +1,6 @@
 import { events } from '../core/events.js'
 import { createChildLogger } from '../core/logger.js'
-import { sessionManager } from '../core/sessions.js'
+import { sessionManager, forceFinishPrompt } from '../core/sessions.js'
 import { getRuntimePort } from '../runtime/runtime-port-provider.js'
 import type { RuntimeCancelResult } from '../ports/runtime-port.js'
 import { eventStore, sessionStore } from '../store/sessions.js'
@@ -45,6 +45,9 @@ export async function executeSessionCommand(
     case 'session.cancel':
       await cancelSessionPrompt(command.sessionId)
       return { ok: true }
+    case 'session.forceFinish':
+      await forceFinishSessionPrompt(command.sessionId)
+      return { ok: true }
     case 'sessions.markRead':
       return markSessionRead(command.sessionId)
     case 'sessions.markUnread':
@@ -63,6 +66,19 @@ async function cancelSessionPrompt(sessionId: string): Promise<void> {
   if (!session) throw new Error('会话不存在')
   const result = await getRuntimePort().cancelPrompt(session.agent_id, sessionId)
   logCancelResult(sessionId, session.agent_id, result)
+}
+
+/**
+ * 强制结束挂起回合(人工一键):运行时收敛 + 置终态 + 清 activePrompt + 放行队列,
+ * 与运行时死亡清理同一条路径。用于"回合已无响应、普通 cancel 也救不回来"的会话。
+ */
+async function forceFinishSessionPrompt(sessionId: string): Promise<void> {
+  const result = await forceFinishPrompt(sessionId, 'manual')
+  if (!result.finished) throw new Error('会话没有挂起中的回合,无需强制结束')
+  log.warn(
+    { sessionId, turnId: result.turnId, messageId: result.messageId },
+    'session prompt force-finished by command',
+  )
 }
 
 function logCancelResult(sessionId: string, agentId: string, result: RuntimeCancelResult): void {

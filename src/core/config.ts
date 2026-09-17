@@ -39,6 +39,15 @@ export interface AppConfig {
   runtimeIdleSweepMs?: number
   runtimeSessionIdleMs?: number
   runtimeAgentIdleMs?: number
+  /**
+   * 挂起回合自动收敛(级别 b,默认关闭):存在排队消息 + 无任何流事件/心跳 ≥
+   * promptStuckAutoRecoverMs 时,走"置终态 + 清 activePrompt + drain 队列"的
+   * 死亡清理同款路径。默认关闭的原因:活着的回合可以长静默后仍产出真答案,
+   * 自动结束会丢掉后续产出(2026-09-17 sess-d83044f2 事故评审结论)。
+   */
+  promptStuckAutoRecoverEnabled?: boolean
+  /** 自动收敛的静默阈值(毫秒);默认 30 分钟,不允许低于 30 分钟。 */
+  promptStuckAutoRecoverMs?: number
   staticDir?: string
   mobileStaticDir?: string
   localToken?: string
@@ -90,6 +99,8 @@ export function loadConfig(): AppConfig {
     runtimeIdleSweepMs: parsePositiveInteger(process.env.RUNTIME_IDLE_SWEEP_MS, 5 * 60 * 1000),
     runtimeSessionIdleMs: parsePositiveInteger(process.env.RUNTIME_SESSION_IDLE_MS, 30 * 60 * 1000),
     runtimeAgentIdleMs: parsePositiveInteger(process.env.RUNTIME_AGENT_IDLE_MS, 60 * 60 * 1000),
+    promptStuckAutoRecoverEnabled: process.env.PROMPT_STUCK_AUTO_RECOVER === 'enabled',
+    promptStuckAutoRecoverMs: parsePositiveInteger(process.env.PROMPT_STUCK_RECOVER_MS, 30 * 60 * 1000),
     staticDir: process.env.STATIC_DIR ? resolve(process.env.STATIC_DIR) : resolve('./ui/dist'),
     mobileStaticDir: process.env.MOBILE_STATIC_DIR ? resolve(process.env.MOBILE_STATIC_DIR) : resolve('./mobile/dist'),
     localToken: process.env.AI_IDE_LOCAL_TOKEN || undefined,

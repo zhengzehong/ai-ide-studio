@@ -83,6 +83,11 @@ export interface SessionTurnFinalizeResult {
   messageId: string
   fileChangesJson: string | null
   processItemCount: number
+  /**
+   * 终态是否真正写入。false = 行已存在且非 running(写入侧 `AND status='running'` 守卫拦截),
+   * 调用方必须留痕,不得静默吞掉迟到的真终稿(2026-09-17 sess-d83044f2 事故)。
+   */
+  applied: boolean
 }
 
 export type WriteMutation =
@@ -147,6 +152,7 @@ export interface SessionWriteCursor {
 export type RuntimeCommandType =
   | 'prompt'
   | 'session.cancel'
+  | 'session.forceFinish'
   | 'sessions.markRead'
   | 'sessions.markUnread'
   | 'permission.respond'

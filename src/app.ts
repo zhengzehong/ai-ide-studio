@@ -41,7 +41,7 @@ import { executeSessionCommand } from './commands/session-command-service.js'
 import { startWriterMaintenanceLoop } from './data-worker/writer-maintenance-loop.js'
 import { createEventLoopMonitor, eventLoopMonitorOptions } from './shared/event-loop-monitor.js'
 import { operationDiagnosticsContext } from './shared/operation-diagnostics.js'
-import { listActivePromptDiagnostics } from './core/prompt-diagnostics.js'
+import { listActivePromptDiagnostics, configurePromptWatchdog } from './core/prompt-diagnostics.js'
 import { resumeProjectSecretaryRuns } from './core/project-secretary.js'
 import { resumeProjectInspirations } from './core/project-inspiration.js'
 import { handleSessionTurnDone, resumeProjectAdvisors } from './core/project-advisor.js'
@@ -92,6 +92,11 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
   log.info({ dbPath, ...dbTiming }, '数据库已初始化')
   markStartupPhase('database', { openMs: dbTiming.openMs, migrateMs: dbTiming.migrateMs })
   log.info({ dataDir: config.dataDir, ...getLogConfig() }, '日志配置已加载')
+  // 挂起回合看门狗:自动收敛(级别 b)默认关闭,阈值下限 30 分钟(见 prompt-diagnostics.ts)。
+  configurePromptWatchdog({
+    autoRecoverEnabled: config.promptStuckAutoRecoverEnabled ?? false,
+    autoRecoverSilentMs: config.promptStuckAutoRecoverMs,
+  })
   currentPhase = 'reconcile'
   const recovery = sessionStore.reconcileInterruptedStages()
   if (recovery.interrupted.length > 0 || recovery.cleared.length > 0) {

@@ -29,6 +29,8 @@ const RUNNING_STAGE_TEXTS = new Set([
   '正在恢复会话...',
   '会话已连接',
   '正在思考...',
+  // 与 src/store/session-runtime-state.ts 的 RUNNING_SESSION_STAGES / QUEUED_PROMPT_STAGE 保持同步。
+  '排队中(前面有未完成回合)',
 ])
 
 export function isRunningStage(stage?: string | null): boolean {

@@ -7,9 +7,12 @@ import type {
   TurnProcessTextAppendInput,
 } from '../../ports/write-data-port.js'
 import { parseFileChangesJson } from '../../store/file-changes.js'
+import { QUEUED_PROMPT_STAGE } from '../../store/session-runtime-state.js'
 
 type SqliteDatabase = ReturnType<typeof Database>
 
+// \u4e0e src/store/session-runtime-state.ts \u7684 RUNNING_SESSION_STAGES \u4fdd\u6301\u4e00\u81f4
+// (writer worker \u4fa7\u526f\u672c,\u7528\u4e8e\u7ec8\u6001\u65f6\u6e05\u7406\u8fd0\u884c\u4e2d stage)\u3002
 const RUNNING_SESSION_STAGES = [
   '\u6b63\u5728\u51c6\u5907 Agent...',
   '\u6b63\u5728\u542f\u52a8 Agent...',
@@ -18,6 +21,7 @@ const RUNNING_SESSION_STAGES = [
   '\u6b63\u5728\u8fde\u63a5\u4f1a\u8bdd...',
   '\u4f1a\u8bdd\u5df2\u8fde\u63a5',
   '\u6b63\u5728\u601d\u8003...',
+  QUEUED_PROMPT_STAGE,
 ] as const
 
 export function upsertTurnProcessItem(
@@ -130,13 +134,15 @@ export function finalizeSessionTurn(
       timestamp = @timestamp
     WHERE id = @id AND role = 'agent' AND status = 'running'
   `).run(messageValues)
-  if (updated.changes === 0 && !messageExists(db, input.messageId)) {
+  let applied = updated.changes > 0
+  if (!applied && !messageExists(db, input.messageId)) {
     insertTerminalMessage(db, messageValues)
+    applied = true
   }
 
   clearRunningSessionStage(db, input.sessionId, input.timestamp, input.timestamp)
 
-  return { messageId: input.messageId, fileChangesJson, processItemCount }
+  return { messageId: input.messageId, fileChangesJson, processItemCount, applied }
 }
 
 export function clearRunningSessionStage(
@@ -182,6 +188,7 @@ export function reconstructSessionTurnResult(
     messageId: input.messageId,
     fileChangesJson: message?.file_changes_json ?? null,
     processItemCount: message?.process_item_count ?? processCount(db, input.messageId),
+    applied: true,
   }
 }
 
