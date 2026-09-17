@@ -1116,6 +1116,19 @@ export const eventStore = {
     return row?.sequence ?? 0
   },
 
+  /**
+   * 按 messageId 取消息正文分片(sequence 升序),仅供"终稿只读还原"使用。
+   * 不走 listByMessage 的回合边界启发式:迟到/错位终帧可能切在分片中间,
+   * 还原必须拿到该 messageId 的全部 message.chunk(2026-09-17 sess-d83044f2 事故)。
+   */
+  listMessageChunks(sessionId: string, messageId: string): SessionEventRow[] {
+    return getDb().prepare<{ sessionId: string; messageId: string }, SessionEventRow>(`
+      SELECT * FROM session_events
+      WHERE session_id = @sessionId AND message_id = @messageId AND type = 'message.chunk'
+      ORDER BY sequence ASC
+    `).all({ sessionId, messageId })
+  },
+
   listByMessage(sessionId: string, messageId: string): SessionEventRow[] {
     return getDb().prepare<{ sessionId: string; messageId: string }, SessionEventRow>(`
       WITH turn_bounds AS (

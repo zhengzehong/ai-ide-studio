@@ -7,9 +7,12 @@ import type {
   TurnProcessTextAppendInput,
 } from '../../ports/write-data-port.js'
 import { parseFileChangesJson } from '../../store/file-changes.js'
+import { QUEUED_PROMPT_STAGE } from '../../store/session-runtime-state.js'
 
 type SqliteDatabase = ReturnType<typeof Database>
 
+// \u4e0e src/store/session-runtime-state.ts \u7684 RUNNING_SESSION_STAGES \u4fdd\u6301\u4e00\u81f4
+// (writer worker \u4fa7\u526f\u672c,\u7528\u4e8e\u7ec8\u6001\u65f6\u6e05\u7406\u8fd0\u884c\u4e2d stage)\u3002
 const RUNNING_SESSION_STAGES = [
   '\u6b63\u5728\u51c6\u5907 Agent...',
   '\u6b63\u5728\u542f\u52a8 Agent...',
@@ -18,6 +21,7 @@ const RUNNING_SESSION_STAGES = [
   '\u6b63\u5728\u8fde\u63a5\u4f1a\u8bdd...',
   '\u4f1a\u8bdd\u5df2\u8fde\u63a5',
   '\u6b63\u5728\u601d\u8003...',
+  QUEUED_PROMPT_STAGE,
 ] as const
 
 export function upsertTurnProcessItem(
@@ -130,13 +134,15 @@ export function finalizeSessionTurn(
       timestamp = @timestamp
     WHERE id = @id AND role = 'agent' AND status = 'running'
   `).run(messageValues)
-  if (updated.changes === 0 && !messageExists(db, input.messageId)) {
+  let applied = updated.changes > 0
+  if (!applied && !messageExists(db, input.messageId)) {
     insertTerminalMessage(db, messageValues)
+    applied = true
   }
 
   clearRunningSessionStage(db, input.sessionId, input.timestamp, input.timestamp)
 
-  return { messageId: input.messageId, fileChangesJson, processItemCount }
+  return { messageId: input.messageId, fileChangesJson, processItemCount, applied }
 }
 
 export function clearRunningSessionStage(
@@ -175,13 +181,15 @@ export function reconstructSessionTurnResult(
   db: SqliteDatabase,
   input: SessionTurnFinalizeInput,
 ): SessionTurnFinalizeResult {
-  const message = db.prepare<[string], { file_changes_json: string | null; process_item_count: number }>(`
-    SELECT file_changes_json, process_item_count FROM messages WHERE id = ?
+  const message = db.prepare<[string], { file_changes_json: string | null; process_item_count: number; status: string | null }>(`
+    SELECT file_changes_json, process_item_count, status FROM messages WHERE id = ?
   `).get(input.messageId)
   return {
     messageId: input.messageId,
     fileChangesJson: message?.file_changes_json ?? null,
     processItemCount: message?.process_item_count ?? processCount(db, input.messageId),
+    // 幂等重放批次已提交:终态是否真的在行上(行存在且状态与本批次一致),不能硬编码 true(N1)。
+    applied: message !== undefined && message.status === input.status,
   }
 }
 
@@ -208,7 +216,7 @@ function insertTerminalMessage(
       completed_at, stats_json, process_item_count, timestamp, sender_id, sender_name, sender_role
     ) VALUES (
       @id, @session_id, 'agent', @content, NULL, NULL, @decision_json,
-      NULL, @file_changes_json, @presentations_json, @status, NULL,
+      NULL, @file_changes_json, @presentations_json, @status, @completed_at,
       @completed_at, @stats_json, @process_item_count, @timestamp, NULL, NULL, 'assistant'
     )
   `).run(values)

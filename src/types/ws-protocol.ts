@@ -450,6 +450,11 @@ export interface SessionsMessageEventsMsg extends ClientMessage {
   sessionId: string
   messageId: string
 }
+export interface SessionsRecoveredDraftMsg extends ClientMessage {
+  type: 'sessions.recoveredDraft'
+  sessionId: string
+  messageId: string
+}
 export interface SessionsEventsMsg extends ClientMessage {
   type: 'sessions.events'
   sessionId: string

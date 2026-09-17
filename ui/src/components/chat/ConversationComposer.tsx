@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { ArrowUp, Check, ChevronDown, Circle, Mail, Paperclip, Send, Settings2, Square, Wrench, X } from 'lucide-react'
+import { ArrowUp, Check, ChevronDown, Circle, Mail, Paperclip, Send, Settings2, Square, Wrench, X, Zap } from 'lucide-react'
 import type { ImageAttachmentInfo } from '../../stores/session-events'
 import { createWorkspaceFileLocalId, MAX_WORKSPACE_FILES, partitionWorkspaceFiles, type WorkspacePendingFile } from '../../pages/workspace/workspace-file-attachments'
 import { WorkspaceFileAttachmentList } from '../../pages/workspace/WorkspaceFileAttachmentList'
 import { configLabel, configOptionLabel, fmtTokens, menuStyle, modeCn, type MenuAnchor, type MenuName } from '../../pages/workspace/helpers'
+import { ConfirmDialog } from '../ModalDialog'
 import { uploadSessionFile } from '../../services/session-file-upload'
 import { pickEffortOption } from '../../../../src/shared/effort-config'
 import type { ConversationAdapter, ConversationUploadedFile } from './conversation-types'
@@ -32,6 +33,8 @@ export function ConversationComposer({ adapter }: { adapter: ConversationAdapter
   const [images, setImages] = useState<ImageAttachmentInfo[]>(initial.images)
   const [sending, setSending] = useState(false)
   const [stoppingTurnId, setStoppingTurnId] = useState<string | null>(null)
+  const [forceFinishOpen, setForceFinishOpen] = useState(false)
+  const [forceFinishing, setForceFinishing] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
   const [stopError, setStopError] = useState<string | null>(null)
   const [queuedPromptNotice, setQueuedPromptNotice] = useState<string | null>(null)
@@ -256,6 +259,15 @@ export function ConversationComposer({ adapter }: { adapter: ConversationAdapter
     try { await adapter.cancel() } catch (error) { setStoppingTurnId(null); setStopError(error instanceof Error ? error.message : '停止失败，请重试') }
   }
 
+  /** 强制结束（session.forceFinish）：普通停止无效时的兜底，终结当前回合并放行排队消息。 */
+  const forceFinish = async (): Promise<void> => {
+    if (!adapter.forceFinish) return
+    setForceFinishOpen(false)
+    setForceFinishing(true)
+    setStopError(null)
+    try { await adapter.forceFinish() } catch (error) { setStopError(error instanceof Error ? error.message : '强制结束失败，请重试') } finally { setForceFinishing(false) }
+  }
+
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() }
   }
@@ -444,10 +456,29 @@ export function ConversationComposer({ adapter }: { adapter: ConversationAdapter
           {blocked && <span className="conversation-toolbar-status conversation-toolbar-status--error">等待确认</span>}
           {stopping && <span className="conversation-toolbar-status">正在停止</span>}
           {streaming && <button type="button" className="conversation-stop" onClick={() => { void stop() }} disabled={stopping} title={stopping ? '停止处理中' : '停止生成'}><Square size={14} fill="currentColor" /></button>}
+          {(streaming || stopping) && adapter.forceFinish && (
+            <button
+              type="button"
+              className="conversation-stop"
+              onClick={() => setForceFinishOpen(true)}
+              disabled={forceFinishing}
+              title="强制结束回合（停止无效时使用；终结当前回合并放行排队消息）"
+              aria-label="强制结束回合"
+            ><Zap size={14} fill="currentColor" /></button>
+          )}
           <button type="button" className="conversation-send" disabled={!canSend} onClick={() => { void submit() }} title={targetMember ? `发送给 ${targetMember.name}` : '发送'}>{targetMember ? <Send size={15} /> : <ArrowUp size={16} />}</button>
         </div>
       </div>
       {menu && menuItems.length > 0 && <ConversationDropdown anchor={menuAnchor} items={menuItems} command={menu === 'command'} header={TEAM_MENUS.includes(menu) || activeTargetConfig ? effortScopeNote : undefined} note={menu === 'teamTargets' ? TEAM_TARGETS_NOTE : undefined} onClose={() => setMenu(null)} />}
+      <ConfirmDialog
+        open={forceFinishOpen}
+        title="强制结束当前回合"
+        message="将立即终结当前回合并放行排队中的消息。若回合其实仍在产出，后续内容将不再送达（已产出的内容仍可从事件流还原）。确定继续？"
+        confirmLabel="强制结束"
+        danger
+        onConfirm={() => { void forceFinish() }}
+        onCancel={() => setForceFinishOpen(false)}
+      />
     </div>
   )
 }

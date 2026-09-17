@@ -27,6 +27,11 @@ export type SessionCommand =
     }
   | {
       commandId: string
+      type: 'session.forceFinish'
+      sessionId: string
+    }
+  | {
+      commandId: string
       type: 'sessions.markRead'
       sessionId: string
     }
@@ -80,6 +85,7 @@ export function parseSessionCommand(
       ])
       return parsePrompt(value, commandId, sessionId)
     case 'session.cancel':
+    case 'session.forceFinish':
     case 'sessions.markRead':
     case 'sessions.markUnread':
       assertAllowedFields(value, BASE_FIELDS)

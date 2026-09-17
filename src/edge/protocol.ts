@@ -29,6 +29,7 @@ const APP_CONFIG_KEY_LIST = [
   'realtimeMaxBufferedBytes', 'realtimeIpcMaxFrameBytes', 'runtimeMode',
   'runtimeIpcMaxFrameBytes', 'runtimeRestartDelayMs', 'runtimeIdleSweepMs',
   'runtimeSessionIdleMs', 'runtimeAgentIdleMs', 'staticDir', 'mobileStaticDir',
+  'promptStuckAutoRecoverEnabled', 'promptStuckAutoRecoverMs',
   'localToken', 'anthropicApiKey', 'openaiApiKey', 'googleApiKey',
   'bridgeCallbackToken', 'bridgeServerUrl', 'funAsrWsUrl',
 ] as const satisfies readonly (keyof AppConfig)[]
@@ -102,14 +103,14 @@ function isAppConfig(value: unknown): value is AppConfig {
       'anthropicApiKey', 'openaiApiKey', 'googleApiKey', 'bridgeCallbackToken', 'bridgeServerUrl',
       'funAsrWsUrl',
     ] as const satisfies AppConfigKeyList)
-    && optionalBooleans(value, ['realtimeLegacyRpc'] as const satisfies AppConfigKeyList)
+    && optionalBooleans(value, ['realtimeLegacyRpc', 'promptStuckAutoRecoverEnabled'] as const satisfies AppConfigKeyList)
     && optionalNumbers(value, [
       'dataWorkerSlowMs', 'dataMaintenanceIntervalMs', 'dataWalCheckpointBytes',
       'dataPublishedOutboxRetentionMs', 'dataBatchCommitRetentionMs', 'modelCaptureProxyPort',
       'realtimePort', 'realtimeMaxQueueMessages',
       'realtimeMaxQueueBytes', 'realtimeMaxBufferedBytes', 'realtimeIpcMaxFrameBytes',
       'runtimeIpcMaxFrameBytes', 'runtimeRestartDelayMs', 'runtimeIdleSweepMs',
-      'runtimeSessionIdleMs', 'runtimeAgentIdleMs',
+      'runtimeSessionIdleMs', 'runtimeAgentIdleMs', 'promptStuckAutoRecoverMs',
     ] as const satisfies AppConfigKeyList)
 }
 

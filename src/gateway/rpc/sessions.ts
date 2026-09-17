@@ -12,6 +12,7 @@ import {
   getSessionRuntimeCapabilities,
 } from '../../core/session-runtime-control.js'
 import { sessionManager } from '../../core/sessions.js'
+import { recoverMessageDraftFromEvents } from '../../core/message-recovery.js'
 import { agentStore } from '../../store/agents.js'
 import { projectStore } from '../../store/projects.js'
 import { eventStore, messageStore, sessionStore } from '../../store/sessions.js'
@@ -406,6 +407,16 @@ export const sessionRpcHandlers: RpcHandlerMap = {
       return
     }
     sendResult(eventStore.listByMessage(sessionId, message.id))
+  },
+
+  /**
+   * 终稿只读还原:行已被误终结/守卫拒收时,按 messageId 从 session_events 合并真实内容。
+   * 不写库;无分片时返回 null(调用方按原样展示)。
+   */
+  'sessions.recoveredDraft'(msg, { sendResult }) {
+    const sessionId = msg.sessionId as string
+    const message = getSessionMessage(sessionId, msg.messageId as string)
+    sendResult(recoverMessageDraftFromEvents(sessionId, message.id))
   },
 
   async 'sessions.events'(msg, { sendResult }) {

@@ -412,6 +412,15 @@ describe('workbench session store', () => {
     expect(useWorkbenchSessionStore.getState().streamingMessage?.processBlocks[0]).toMatchObject({ kind: 'tool', toolCall: { id: 'tool-live', title: '执行检查' } })
   })
 
+  test('forceFinish issues session.forceFinish for the selected session', async () => {
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    await useWorkbenchSessionStore.getState().select('session-a')
+    execute.mockClear()
+    await useWorkbenchSessionStore.getState().forceFinish()
+    expect(execute).toHaveBeenCalledWith(expect.objectContaining({ type: 'session.forceFinish', sessionId: 'session-a' }))
+    expect(useWorkbenchSessionStore.getState().stopping).toBe(true)
+  })
+
   test('keeps cancellation state scoped to the session until its idle event', async () => {
     const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
     await useWorkbenchSessionStore.getState().select('session-a')

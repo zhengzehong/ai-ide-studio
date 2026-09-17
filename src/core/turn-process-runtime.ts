@@ -49,6 +49,11 @@ export function startTurnProcess(sessionId: string, messageId: string): void {
   log.debug({ sessionId, messageId }, 'active turn process started')
 }
 
+/** 当前活跃执行过程的行 id;强制收敛(forceFinishPrompt)按它给挂起回合置终态。 */
+export function getActiveTurnMessageId(sessionId: string): string | undefined {
+  return activeTurns.get(sessionId)?.messageId
+}
+
 export function recordTurnProcessUpdate(
   sessionId: string,
   agentId: string,

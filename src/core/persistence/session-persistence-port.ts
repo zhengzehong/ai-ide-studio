@@ -68,13 +68,17 @@ class SessionPersistencePort {
     })
   }
 
-  async updateRunningSnapshot(sessionId: string, messageId: string, content: string): Promise<void> {
-    await this.commit(sessionId, 'background', [{
+  async updateRunningSnapshot(sessionId: string, messageId: string, content: string): Promise<number> {
+    const batch = await this.commit(sessionId, 'background', [{
       type: 'message.snapshot.update',
       messageId,
       content,
       timestamp: new Date().toISOString(),
     }])
+    const result = batch.results.find((item) => item.type === 'message.snapshot.update')
+    // changes=0 表示写入侧 `AND status='running'` 守卫拦截(行已终态)→ 调用方需留痕,
+    // 否则迟到内容会被静默丢弃(2026-09-17 sess-d83044f2 事故)。
+    return result?.type === 'message.snapshot.update' ? result.changes : 0
   }
 
   commitMutations(

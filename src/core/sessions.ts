@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { beginDeviceOrigin, endDeviceOrigin } from '../devices/prompt-origin.js'
 import { sessionStore, messageStore, eventStore, type SessionRow } from '../store/sessions.js'
+import { QUEUED_PROMPT_STAGE } from '../store/session-runtime-state.js'
 import { taskStore } from '../store/tasks.js'
 import { agentStore } from '../store/agents.js'
 import { globalAssistantStore } from '../store/global-assistant.js'
@@ -17,13 +18,18 @@ import { agentHubService } from './agent-hub/index.js'
 import { assertSessionManageable } from './session-manage-guard.js'
 import type { ImageAttachment, SessionActivityReason, SessionActivityState, SessionUpdateData } from '../types/ws-protocol.js'
 import { createPendingTurn, finalizePendingTurn, updatePendingTurn, type PendingTurn } from './turn-finalizer.js'
+import { resolveTerminalAttribution } from './terminal-attribution.js'
+import { isAutonomousTurnMessageId } from '../shared/autonomous-turn.js'
+import { recoverMessageDraftFromEvents } from './message-recovery.js'
 import { buildTeamLeaderPrompt } from './team-prompts.js'
 import { resolveVisiblePlatformTools } from '../tools/registry/visibility-resolver.js'
 import { eventPayloadFromUpdate } from './session-event-payload.js'
 import { SessionUpdateBatcher, type SessionUpdateEnvelope } from './session-update-batcher.js'
 import {
+  configurePromptWatchdog,
   createTurnId,
   finishPromptDiagnostics,
+  getPromptDiagnosticState,
   getPromptTurnId,
   recordPromptProgress,
   startPromptDiagnostics,
@@ -33,6 +39,7 @@ import {
 import {
   completeTurnProcess,
   createAgentMessageId,
+  getActiveTurnMessageId,
   recordTurnProcessUpdate,
   startTurnProcess,
 } from './turn-process-runtime.js'
@@ -186,10 +193,46 @@ async function finalizeSessionMessage(ev: AppEvents['session:done']): Promise<vo
       ? 'cancelled'
       : 'completed'
   const processResult = await completeTurnProcess(ev.sessionId, processStatus)
-  const finalMessageId = processResult.messageId ?? finalized?.messageId ?? ev.messageId
+  // 终帧到达时"在飞回合"的行 id:迟到终帧场景下它属于更新的回合,用于判断 stage 归属(F2)。
+  const inFlightMessageId = processResult.messageId ?? getActiveTurnMessageId(ev.sessionId)
+  // 归属:事件 messageId 与活跃过程/待终稿的内容源按四场景契约判定(2026-09-17 sess-d83044f2
+  // 误归属事故 + 双审:exit-*/done-* 合成 id 不得建幽灵行,见 terminal-attribution.ts)。
+  const eventRowExists = messageStore.get(ev.messageId) !== undefined
+  const attribution = resolveTerminalAttribution({
+    eventMessageId: ev.messageId,
+    processMessageId: processResult.messageId,
+    hasPendingContent: finalized !== null,
+    pendingMessageId: finalized?.messageId,
+    eventRowExists,
+  })
+  const finalMessageId = attribution.messageId
+  if (attribution.mismatch) {
+    log.warn(
+      {
+        sessionId: ev.sessionId,
+        agentId: ev.agentId,
+        turnId,
+        eventMessageId: ev.messageId,
+        processMessageId: processResult.messageId,
+        pendingMessageId: finalized?.messageId,
+        eventRowExists,
+        source: attribution.source,
+        stopReason: ev.stopReason,
+      },
+      'terminal messageId mismatch; attributing per attribution rule',
+    )
+  }
+  if (!eventRowExists && finalMessageId === ev.messageId && !isAutonomousTurnMessageId(finalMessageId)) {
+    // 终态将落到一条不存在、也非合成回合(非 auto-*)的行上:exit-*/done-* 这类合成 id
+    // 已被归属规则拦下;若仍出现说明上游产出了新的"非消息行 id",留痕便于追。
+    log.warn(
+      { sessionId: ev.sessionId, agentId: ev.agentId, turnId, messageId: finalMessageId, eventMessageId: ev.messageId },
+      'terminal attribution targets a message row that does not exist; it will be created by the terminal write',
+    )
+  }
 
-  if (finalized) {
-    const finalContent = processResult.finalAnswer || finalized.content
+  if (finalized && attribution.usePendingContent) {
+    const finalContent = (attribution.useProcessContent ? processResult.finalAnswer : undefined) || finalized.content
     await commitFinalMessage(ev, {
       messageId: finalMessageId,
       content: finalContent,
@@ -199,7 +242,7 @@ async function finalizeSessionMessage(ev: AppEvents['session:done']): Promise<vo
       progress: 'message.finalized',
       logMessage: 'agent message finalized',
     })
-  } else if (processResult.messageId && !(ev.stopReason === 'error' && ev.error)) {
+  } else if (attribution.useProcessContent && !(ev.stopReason === 'error' && ev.error)) {
     await commitFinalMessage(ev, {
       messageId: finalMessageId,
       content: processResult.finalAnswer ?? '',
@@ -208,22 +251,61 @@ async function finalizeSessionMessage(ev: AppEvents['session:done']): Promise<vo
       logMessage: 'agent message completed from running snapshot',
     })
   } else if (ev.stopReason === 'error' && ev.error) {
-    const content = `执行失败：${ev.error}`
-    await commitFinalMessage(ev, {
-      messageId: finalMessageId,
-      content,
-      processStatus: 'failed',
-      progress: 'message.error.finalized',
-      logMessage: 'agent error message finalized',
-    })
+    if (finalMessageId === ev.messageId && !eventRowExists && !isAutonomousTurnMessageId(ev.messageId)) {
+      // "严禁幽灵行"完全兑现(F1):exit-* 在"无过程、无 pending"时走到错误分支,只可能是
+      // 对已结算回合的迟到退出帧 —— 再建一行就是一条虚假的"执行失败"消息。
+      log.warn(
+        {
+          sessionId: ev.sessionId,
+          agentId: ev.agentId,
+          turnId,
+          messageId: finalMessageId,
+          error: ev.error,
+        },
+        'error terminal for an unknown non-autonomous id skipped; no ghost row created',
+      )
+      await skipTerminalWrite(ev, turnId, finalMessageId, inFlightMessageId, 'session error without finalizable message')
+    } else {
+      const content = `执行失败：${ev.error}`
+      await commitFinalMessage(ev, {
+        messageId: finalMessageId,
+        content,
+        processStatus: 'failed',
+        progress: 'message.error.finalized',
+        logMessage: 'agent error message finalized',
+      })
+    }
   } else {
-    await sessionPersistencePort.commitMutations(ev.sessionId, 'critical', [{
-      type: 'session.stage.clear-running',
-      sessionId: ev.sessionId,
-      timestamp: new Date().toISOString(),
-    }])
-    log.debug({ sessionId: ev.sessionId, agentId: ev.agentId, turnId, messageId: ev.messageId, stopReason: ev.stopReason }, 'session done without finalizable message')
-    recordPromptProgress(ev.sessionId, 'message.finalize.skipped')
+    // 没有任何与归属行同源的聚合内容。行仍在 running 时必须置终态(否则留下永久僵尸行,
+    // 写侧守卫还会静默丢弃后续快照);行不存在时保持旧行为(只清 stage),两者都留痕。
+    const existing = messageStore.get(finalMessageId)
+    if (existing?.status === 'running') {
+      // 只读还原:该回合的流式分片可能还在事件流里(行被守卫拒收 → 内容只在那里),
+      // 终态写入前先按 messageId 合并,避免"回答内容消失"。
+      const recovered = recoverMessageDraftFromEvents(ev.sessionId, finalMessageId)
+      log.warn(
+        {
+          sessionId: ev.sessionId,
+          agentId: ev.agentId,
+          turnId,
+          messageId: finalMessageId,
+          stopReason: ev.stopReason,
+          pendingMessageId: finalized?.messageId,
+          processMessageId: processResult.messageId,
+          recoveredChunks: recovered?.chunkCount ?? 0,
+        },
+        'session done without content matching the terminal row; finalizing with recovered event stream',
+      )
+      await commitFinalMessage(ev, {
+        messageId: finalMessageId,
+        content: recovered?.content ?? '',
+        processStatus,
+        progress: 'message.empty.finalized',
+        logMessage: 'agent message finalized without matching content',
+      })
+    } else {
+      await skipTerminalWrite(ev, turnId, finalMessageId, inFlightMessageId, 'session done without finalizable message')
+    }
   }
   const updated = sessionStore.get(ev.sessionId)
   if (updated) events.emit('session:changed', { sessionId: ev.sessionId, data: { ...updated } })
@@ -238,6 +320,41 @@ interface FinalMessageCommitInput {
   thinkingLength?: number
   progress: string
   logMessage: string
+}
+
+/**
+ * 无内容可写的终帧收尾:清运行中 stage + 留痕。F2:迟到的重复终帧(目标是旧行)不得
+ * 清掉在飞新回合的 stage —— 只有当归属行就是当时在飞回合的行(或已无在飞回合)时才清。
+ */
+async function skipTerminalWrite(
+  ev: AppEvents['session:done'],
+  turnId: string | undefined,
+  finalMessageId: string,
+  inFlightMessageId: string | undefined,
+  logMessage: string,
+): Promise<void> {
+  if (inFlightMessageId !== undefined && inFlightMessageId !== finalMessageId) {
+    log.info(
+      {
+        sessionId: ev.sessionId,
+        agentId: ev.agentId,
+        turnId,
+        messageId: finalMessageId,
+        inFlightMessageId,
+        stopReason: ev.stopReason,
+      },
+      'skipped stage cleanup; the session stage belongs to a newer turn',
+    )
+    recordPromptProgress(ev.sessionId, 'message.finalize.skipped')
+    return
+  }
+  await sessionPersistencePort.commitMutations(ev.sessionId, 'critical', [{
+    type: 'session.stage.clear-running',
+    sessionId: ev.sessionId,
+    timestamp: new Date().toISOString(),
+  }])
+  log.debug({ sessionId: ev.sessionId, agentId: ev.agentId, turnId, messageId: finalMessageId, stopReason: ev.stopReason }, logMessage)
+  recordPromptProgress(ev.sessionId, 'message.finalize.skipped')
 }
 
 async function commitFinalMessage(ev: AppEvents['session:done'], input: FinalMessageCommitInput): Promise<void> {
@@ -263,9 +380,26 @@ async function commitFinalMessage(ev: AppEvents['session:done'], input: FinalMes
     thinkingLength: input.thinkingLength ?? 0,
     toolCallCount: input.toolCalls?.length ?? 0,
     processItemCount: result.processItemCount,
+    applied: result.applied,
     stopReason: ev.stopReason,
     persisted: !!message,
   }, input.logMessage)
+  if (!result.applied) {
+    // 写守卫(UPDATE ... WHERE status='running')拦截了终态写入:行不存在、已终态或 id 错位。
+    // 内容没有落库,必须留痕(N1:applied 此前无消费方)。
+    log.warn(
+      {
+        sessionId: ev.sessionId,
+        agentId: ev.agentId,
+        turnId: eventTurnId(ev),
+        messageId: result.messageId,
+        rowStatus: message?.status,
+        contentLength: input.content.length,
+        stopReason: ev.stopReason,
+      },
+      'terminal write was not applied to a running row; content may be dropped by the write guard',
+    )
+  }
   recordPromptProgress(ev.sessionId, input.progress)
 }
 
@@ -489,11 +623,17 @@ function enqueueSessionPrompt(
   source: QueuedPrompt['source'] = 'platform',
 ): Promise<void> {
   const projectId = resolvePromptProjectId(session, options)
+  // 排队可见性:进入队列时若会话已有未完成回合,先把"排队中"写进会话 stage
+  // (列表/时间线/移动端直接可见;drain 时被 lifecycle.prompt_received 覆盖,终态清理兜底)。
+  const waitingBehindActiveTurn = activePrompts.has(session.id) || promptBatcher.hasPending(session.id)
   const completion = promptBatcher.enqueue(session.id, {
     batchKey: options.batchKey ?? projectId ?? '__default__',
     dedupeKey: options.dedupeKey ?? (options.clientMessageId ? `message:${options.clientMessageId}` : undefined),
     value: { content, images, options, projectId, source, intent: options.intent },
   })
+  if (waitingBehindActiveTurn && sessionStore.get(session.id)?.stage !== QUEUED_PROMPT_STAGE) {
+    emitLifecycle(session.agent_id, session.id, 'lifecycle.prompt_queued', QUEUED_PROMPT_STAGE)
+  }
   schedulePromptBatchDrain(session.id)
   return completion
 }
@@ -523,9 +663,162 @@ function schedulePromptBatchDrain(sessionId: string): void {
       await sendPromptBatchNow(session, inputs)
     }).catch((err: unknown) => {
       log.error({ err, sessionId }, 'session prompt batch drain failed')
+    }).finally(() => {
+      clearStaleQueuedStage(sessionId)
     })
   })
 }
+
+/** 队列已空且无活跃回合时,清掉可能残留的"排队中" stage(N3:整批被 intent 过滤时无人覆盖)。 */
+function clearStaleQueuedStage(sessionId: string): void {
+  try {
+    if (activePrompts.has(sessionId) || promptBatcher.hasPending(sessionId)) return
+    if (sessionStore.get(sessionId)?.stage !== QUEUED_PROMPT_STAGE) return
+  } catch (err) {
+    // DB 已关闭(进程退出/测试收尾)或会话已消失:跳过即可,不能把 drain 链打成 unhandled rejection。
+    log.debug({ err, sessionId }, 'stale queued stage check skipped')
+    return
+  }
+  void sessionPersistencePort.commitMutations(sessionId, 'critical', [{
+    type: 'session.stage.clear-running',
+    sessionId,
+    timestamp: new Date().toISOString(),
+  }]).then(() => {
+    log.info({ sessionId }, 'stale queued stage cleared after empty batch drain')
+  }).catch((err: unknown) => {
+    log.warn({ err, sessionId }, 'stale queued stage cleanup failed')
+  })
+}
+
+export interface ForceFinishPromptResult {
+  finished: boolean
+  turnId?: string
+  messageId?: string
+  /** 没有挂起回合(或会话不存在)时为 not-active。 */
+  skipped?: 'not-active'
+  /** 运行时收敛后原回合已自行收尾且新回合已接管:跳过终态与清理,避免误伤新回合。 */
+  superseded?: boolean
+}
+
+/** 按会话反查最新一条 running 的 agent 行(诊断态/id 缺失时的兜底归属)。 */
+function findRunningAgentMessageId(sessionId: string): string | undefined {
+  const rows = messageStore.list(sessionId, { limit: 50 })
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    const row = rows[i]
+    if (row.role === 'agent' && row.status === 'running') return row.id
+  }
+  return undefined
+}
+
+/**
+ * 回合身份核对(P1-2):诊断态若已属于更新的回合(原回合收尾被 forceFinish / 迟到 settle
+ * 拖到新回合启动之后),任何清理都会踩掉新回合的 activePrompt 占位与看门狗状态 —— 此时返回 false。
+ */
+function turnStillOwnsSession(sessionId: string, turnId: string | undefined): boolean {
+  const current = getPromptDiagnosticState(sessionId)
+  return current === undefined || current.turnId === turnId
+}
+
+/**
+ * 强制结束挂起回合(人工一键 / 看门狗自动,2026-09-17 sess-d83044f2 事故修复)。
+ * 与运行时死亡触发的清理同一条路径,顺序:
+ *   1) 运行时侧收敛回合(ACP cancel → 关会话 → 重启 Agent,全部有上限,不会无限等待);
+ *   2) 正常 session:done 链置终态(归属严格按 messageId,行已终态时写入被守卫拦截并留痕);
+ *   3) 清 activePrompt + 结束诊断 + 放行队列(死亡清理同款收尾)。
+ * 注意:结束一个"仍活着但静默"的回合会丢掉它后续可能产出的内容——真正的兜底是
+ * message-recovery 从 session_events 只读还原已产出的部分;因此自动触发的条件必须保守。
+ */
+export async function forceFinishPrompt(
+  sessionId: string,
+  reason: 'manual' | 'watchdog' = 'manual',
+): Promise<ForceFinishPromptResult> {
+  const session = sessionStore.get(sessionId)
+  if (!session) return { finished: false, skipped: 'not-active' }
+  const state = getPromptDiagnosticState(sessionId)
+  if (!activePrompts.has(sessionId) && !state) return { finished: false, skipped: 'not-active' }
+  const turnId = state?.turnId ?? getPromptTurnId(sessionId)
+  // messageId 兜底:id 缺失(活跃过程已被完成/丢失)时按会话反查 running 的 agent 行,
+  // 否则行会永久 running、后续快照全被写守卫静默丢弃,只能重启收敛(P1-3)。
+  const activeTurnMessageId = getActiveTurnMessageId(sessionId)
+  const messageId = activeTurnMessageId ?? findRunningAgentMessageId(sessionId)
+  if (!activeTurnMessageId) {
+    log.warn(
+      { sessionId, agentId: session.agent_id, turnId, fallbackMessageId: messageId, reason },
+      messageId
+        ? 'no active turn messageId; falling back to newest running agent row'
+        : 'no active turn messageId and no running agent row found; nothing to terminalize',
+    )
+  }
+  log.warn({ sessionId, agentId: session.agent_id, turnId, messageId, reason }, 'force finishing active prompt')
+
+  // 1) 先收敛运行时回合,避免随后 drain 的新回合撞上 Runtime turn already active。
+  await getRuntimePort().cancelPrompt(session.agent_id, sessionId).catch((err: unknown) => {
+    log.warn(
+      { err, sessionId, agentId: session.agent_id, turnId },
+      'runtime cancel failed during force finish; releasing platform state anyway',
+    )
+  })
+
+  // 回合身份核对:运行时收敛可能让原回合的 finally 抢先收尾,新回合 B 已接管
+  // (诊断态 turnId 不同)。此时步骤 2/3 的任何终态与清理都会误伤 B —— 直接跳过(P1-2)。
+  if (!turnStillOwnsSession(sessionId, turnId)) {
+    log.warn(
+      {
+        sessionId,
+        agentId: session.agent_id,
+        turnId,
+        currentTurnId: getPromptDiagnosticState(sessionId)?.turnId,
+        reason,
+      },
+      'force finish superseded by a newer turn; skipping terminalization and cleanup',
+    )
+    return { finished: true, turnId, messageId, superseded: true }
+  }
+
+  // 2) 置终态(正常归属链;若该行已是终态,跳过合成 done 避免双写 message.done 事件)。
+  if (messageId) {
+    const row = messageStore.get(messageId)
+    if (row && row.status !== 'running') {
+      log.info(
+        { sessionId, agentId: session.agent_id, turnId, messageId, status: row.status, reason },
+        'force finish skipped synthetic done; terminal row already settled',
+      )
+    } else {
+      events.emit('session:done', {
+        sessionId,
+        agentId: session.agent_id,
+        messageId,
+        turnId,
+        stopReason: 'cancelled',
+      })
+      await sessionManager.waitForPersistence(sessionId).catch((err: unknown) => {
+        log.warn({ err, sessionId, turnId, messageId }, 'force finish terminal persistence failed')
+      })
+    }
+  }
+
+  // 3) 清挂起 + 放行队列(死亡清理同款)。
+  activePrompts.delete(sessionId)
+  finishPromptDiagnostics(sessionId, 'prompt-cancelled')
+  emitSessionActivity(sessionId, session.agent_id, 'idle', 'prompt-cancelled', turnId)
+  schedulePromptBatchDrain(sessionId)
+  log.warn(
+    { sessionId, agentId: session.agent_id, turnId, messageId, reason },
+    'active prompt force-finished; queued messages released',
+  )
+  return { finished: true, turnId, messageId }
+}
+
+// 看门狗自动收敛(级别 b)的回调注入:队列判据与收敛动作都由本模块提供,
+// prompt-diagnostics 只负责节奏与条件判断(避免 core 模块间循环依赖)。
+configurePromptWatchdog({
+  hooks: {
+    hasQueuedMessages: (sessionId) => promptBatcher.hasPending(sessionId),
+    forceFinish: (sessionId) => {
+      void forceFinishPrompt(sessionId, 'watchdog')
+    },
+  },
+})
 
 function resolvePromptProjectId(session: SessionRow, options: PromptOptions): string | undefined {
   const sessionProjectId = session.project_id ?? undefined
@@ -730,8 +1023,10 @@ async function sendPromptBatchNow(session: SessionRow, inputs: QueuedPrompt[]): 
         },
         'prompt rejected after agent message reached terminal state; skipping duplicate terminal',
       )
-      if (terminalMessage.status === 'completed') {
-        activityEndReason = 'prompt-done'
+      if (terminalMessage.status === 'completed' || terminalMessage.status === 'cancelled') {
+        // cancelled:人工/看门狗强制收敛后运行时的迟到响应,同样按"重复终态"吞掉,
+        // 不把已收干的行改写成 failed。
+        activityEndReason = terminalMessage.status === 'cancelled' ? 'prompt-cancelled' : 'prompt-done'
         recordPromptProgress(sessionId, 'prompt.late_error_ignored')
         return
       }
@@ -754,12 +1049,28 @@ async function sendPromptBatchNow(session: SessionRow, inputs: QueuedPrompt[]): 
     } catch (err) {
       log.error({ err, sessionId, agentId: session.agent_id, turnId }, 'prompt persistence drain failed')
     }
-    activePrompts.delete(sessionId)
-    endDeviceOrigin(sessionId, turnId)
-    finishPromptDiagnostics(sessionId, activityEndReason)
-    log.info({ sessionId, agentId: session.agent_id, turnId, reason: activityEndReason, elapsedMs: Date.now() - startedAt, activePromptCount: activePrompts.size }, 'prompt cleanup complete')
-    emitSessionActivity(sessionId, session.agent_id, 'idle', activityEndReason, turnId)
-    schedulePromptBatchDrain(sessionId)
+    if (!turnStillOwnsSession(sessionId, turnId)) {
+      // 本回合的收尾被拖到新回合启动之后(forceFinish 收敛 / 迟到 settle):
+      // 此刻清理只会删掉新回合的占位与看门狗状态,直接跳过(P1-2)。
+      // 注意:不能用 return(finally 里 return 会吞掉 catch 分支抛出的错误)。
+      log.warn(
+        {
+          sessionId,
+          agentId: session.agent_id,
+          turnId,
+          currentTurnId: getPromptDiagnosticState(sessionId)?.turnId,
+          reason: activityEndReason,
+        },
+        'prompt cleanup skipped; a newer turn owns the session',
+      )
+    } else {
+      activePrompts.delete(sessionId)
+      endDeviceOrigin(sessionId, turnId)
+      finishPromptDiagnostics(sessionId, activityEndReason)
+      log.info({ sessionId, agentId: session.agent_id, turnId, reason: activityEndReason, elapsedMs: Date.now() - startedAt, activePromptCount: activePrompts.size }, 'prompt cleanup complete')
+      emitSessionActivity(sessionId, session.agent_id, 'idle', activityEndReason, turnId)
+      schedulePromptBatchDrain(sessionId)
+    }
   }
 }
 
