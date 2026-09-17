@@ -93,7 +93,7 @@ export const TEAM_BUILTIN_TOOLS: BuiltinToolSeed[] = [
       limit: { type: 'number', description: '返回数量' },
     },
   }),
-  teamTool('team.mailbox.send', '发送 Team 留言', '写入本会话线的团队留言、问题、结果或汇报，不触发 Agent 执行；type=report/result 必须带 taskId', {
+  teamTool('team.mailbox.send', '发送 Team 留言', '写入本会话线的团队留言、问题、结果或汇报，不触发 Agent 执行；type=report/result 必须带 taskId；成员汇报请把 toMemberId 填 Leader/留空（不要填自己）', {
     type: 'object',
     properties: {
       teamId: { type: 'string', description: 'Team ID；不传时使用上下文 Team' },

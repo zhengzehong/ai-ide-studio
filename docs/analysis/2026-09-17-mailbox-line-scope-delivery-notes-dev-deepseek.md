@@ -41,7 +41,7 @@
 | 覆盖层单槽 → **拼接**（去重 + 40k 上限） | `src/core/team-wake-coordinator.ts` `appendToPending`（去重按整段文本比较，重复通知不重复拼接） |
 | 定时器"最早截止时间优先" | `armWakeTimer` + `wakeDeadlines`：2s 的邮件唤醒不必等 15s 静默窗口；连续通知不会把窗口无限延后 |
 | 唤醒落线 | `notifyMailbox` 优先用写入时钉死的 `message.conversation_id` → 该线 Leader 格子；缺失时回退 `sourceSessionId` 反查 |
-| 末尾附触发内容快照 | `buildLeaderWakePrompt({ trigger })` → `withWakeTriggerSnapshot`：任务状态行 + 相关邮件摘要（`teamMailboxStore.listByTask`，正文截断 160 字），**追加在整条 prompt 末尾**，原话术一字不改 |
+| 末尾附触发内容快照 | `buildLeaderWakePrompt({ trigger })` → `withWakeTriggerSnapshot`：任务状态行 + 相关邮件摘要（`teamMailboxStore.listByTask`，**按触发邮件所在线过滤**，正文截断 160 字），**追加在整条 prompt 末尾**，原话术一字不改 |
 | `Team Leader wake scheduled` debug→info | `scheduleLeaderWake` / `appendLeaderWake`：`log.info({ reason, via, leaderSessionId, delayMs })`（`reason`=mailbox/task/dispatch-failed/recovery/silent-turn；`via`=preferred/member-line/latest-active/member-bound） |
 
 ### 1.4 加固
@@ -113,7 +113,7 @@
 ## 5. 已知问题 / 风险 / 假设
 
 1. **线上影响（本分支合并后立即生效）**：现有 agent 若发 `type=report/result` 不带 `taskId`，将被工具层拒收（错误信息给出改法）。生产数据：team-a617cb61 历史 mailbox 中 report/result 无 taskId 占比不低（约 28%）→ 合并后成员会被迫补 `taskId` 或改类型（这正是用户要的"汇报必达"口径），但**首次触发时会有可观测的失败峰值**，建议合并后盯一轮 `team.mailbox.send` 错误日志（`未绑任务的汇报不会投递`）。
-2. **无活跃线团队的写入/读取一律拒绝**（设计如此）。已实测生产库：所有**活跃**团队都有 ≥1 活跃线；归档团队无线（其 mailbox 本就不可用）。agent 建团队路径已补首线（§1.1），但 **RPC/UI 建团队 → 人未点"新建会话线"之前**，该团队仍不能收发 mailbox（含人通过 RPC 触发的一切 mailbox 写入）——与"无归属即拒收"同源，属预期行为，需在验收时确认可接受。
+2. **无活跃线团队的写入/读取一律拒绝**（设计如此）。已实测生产库：所有**活跃**团队都有 ≥1 活跃线；归档团队无线（其 mailbox 本就不可用）。写入侧唯一的生产调用方是 agent 工具 `team.mailbox.send`（`teamService.sendMailbox` 在 `src/` 内仅被 `src/tools/handlers/team/team-tools.ts` 调用；RPC 网关没有任何 mailbox 写入路径——`grep -rn mailbox src/gateway/rpc/*.ts` 为空），所以**无活跃线拒绝的实际影响面 = agent 的 mailbox 写入**；agent 建团队路径已补首线（§1.1），而在 UI/RPC 创建团队、人尚未点"新建会话线"之前，该团队还收不到成员汇报（与"无归属即拒收"同源，属预期行为，需在验收时确认可接受）。
 3. **遗留数据（migration 075 之前）不回填**：`conversation_id=NULL` 的行只在默认线可见；无来源会话的历史任务同理。若某团队有多条线且历史汇报重要，管理员需要手工把关键行指到对应线（本分支不提供回填脚本，避免固化历史瞬时状态）。
 4. **团队默认线 = 最早的活跃线**：若最早的线被归档，默认线自动顺延到下一条活跃线（`listActiveByCreation` 只取 active）；这是"默认线"语义的自然延伸，但**归档最早线会让随后的无归属写入改线**，属行为变更点。
 5. **同线已投递标记是内存态**（重启即清空，500 条上限 FIFO）：进程重启后 `recoverPendingWake` 的既有守卫（`last_message_at` 比较）仍生效，不会重复轰炸；但极端情况下（重启 + 存量邮件 + leader 从未活跃）可能出现一次重复唤醒，接受。
@@ -121,6 +121,26 @@
 
 ## 6. 下一步
 
-1. 等双审（glm / deepseek 或派单指定的 reviewer）—— 重点建议看：`src/core/team-line-scope.ts` 的口径完备性、`team-wake-coordinator.ts` 的拼接/定时器语义、`sendMailbox` 拒收边界、`team.status` 契约变化是否被接受。
-2. 双审通过后合并：按 §4 的解法处理 3 个文件 + 1 处测试改名；合并后再跑一遍全量 + lint + build。
+1. ~~等双审~~ 双审**均已通过**（一审 `docs/review/2026-09-17-mailbox-line-scope-review-glm.md`、二审 `2026-09-17-mailbox-line-scope-review-deepseek.md`）；Leader 裁决：**F2 合并前必修**（本分支已补，见 §7），F1 记为已知边界另立后续任务。
+2. 等 F2 增量确认（双 reviewer 仅确认 F2）→ 通过后执行合并（见 §8 合并 checklist）。
 3. 合并后建议跟进（不在本分支范围）：`team-identity-transition` 等**会话线迁移**场景下 mailbox 归属的再验证；mailbox 归属的**回填脚本**（若用户需要历史汇报归线）。
+
+## 7. 微补丁（F2 + 两审顺手项，commit 见分支 log）
+
+| 项 | 来源 | 实现 |
+| --- | --- | --- |
+| 唤醒快照按线 | 二审 F2 | `teamMailboxStore.listByTask(taskId, limit, line?)` 增加可选线过滤（复用 `MAILBOX_LINE_SCOPE_SQL` 口径）；`buildWakeTriggerSnapshot` 经 `snapshotLineFilter`（邮件触发的唤醒取该邮件所在线，遗留 NULL 行按默认线；任务触发的唤醒取任务所在线）只取本线邮件摘要。**任务状态行保留**（"为什么被叫醒"的必要信息，不属于任何线私密内容） |
+| F2 单测 | 工单必补 | `tests/unit/team-line-scope.test.ts`「唤醒快照按线（F2）」：同一 taskId 两线各一封 report，两线各自唤醒 → 各线快照只含本线邮件摘要 + 任务状态行两线都在；并附**反证**（不带线过滤时两封都在），证明"只含本线"来自线过滤而非数据缺失 |
+| F6① 表述如实化 | 二审 | §5.2 改为"写入侧唯一生产调用方是 agent 工具，RPC 无 mailbox 写入路径"（`grep -rn mailbox src/gateway/rpc/*.ts` 为空，已核） |
+| F6③ prompt 模板提示 | 二审（合并时改 prd 侧） | 合并时在 `buildTeamMemberPrompt` 的协作规则补一句"显式 type=report/result 缺 taskId 会被系统拒收"（与工具层拒收口径一致，减少成员往返） |
+| P2-1 description 三合一 | 一审 | 本分支已写入 `team.mailbox.send` 描述（线隔离语义 + 必带 taskId + toMemberId 指引），`src/tools/team-seed.ts` 同步；合并时以该合并版为准 |
+
+## 8. 合并 checklist（合并 prd 时逐条执行，结果写进合并后汇报）
+
+- [ ] `WAKE_TASK_STATUSES` 取 **prd 版本（带 `export`**，`team-silent-turn` 依赖；漏了 tsc 必挂）（一审 P2-2）
+- [ ] `team.mailbox.send` description 三合一（§7 P2-1）——不丢 prd 侧"不要填自己"的提示
+- [ ] 迁移号复查：合并前看 prd 最新迁移号是否已到 075，撞号则本分支迁移顺延（一审 P3-3）
+- [ ] 夹具改名 2 行：`tests/unit/team-mailbox-wake-types.test.ts` 的 `memberSessionId`（对方新用例引用旧属性名）
+- [ ] `teams.ts` / `team-tools.ts` / `team-prompts.ts` 按 §4 实测解法处理（两审均已复核语义相容）
+- [ ] F6③ prompt 模板补"report/result 缺 taskId 会被拒收"（§7）
+- [ ] 合并后 prd 上：全量 `npm test`（既有 flake 除外）+ `npm run lint` + `npm run build` 复验 → 通过后才把 task 置 completed

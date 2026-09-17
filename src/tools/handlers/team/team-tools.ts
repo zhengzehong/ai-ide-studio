@@ -171,7 +171,7 @@ export const listTeamMailboxHandler: ToolHandler = {
 
 export const sendTeamMailboxHandler: ToolHandler = {
   name: 'team.mailbox.send',
-  description: '写入本会话线的团队留言、问题、结果或汇报，不触发 Agent 执行；type=report/result 必须带 taskId',
+  description: '写入本会话线的团队留言、问题、结果或汇报，不触发 Agent 执行；type=report/result 必须带 taskId；成员汇报请把 toMemberId 填 Leader/留空（不要填自己）',
   inputSchema: {
     type: 'object',
     properties: {

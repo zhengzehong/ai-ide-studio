@@ -367,13 +367,19 @@ export const teamMailboxStore = {
   },
 
   /** 某任务最近的 N 条 mailbox（唤醒 prompt 末尾的"相关邮件摘要"用），时间升序返回。 */
-  listByTask(taskId: string, limit = 3): TeamMailboxRow[] {
-    return getDb().prepare<{ taskId: string; limit: number }, TeamMailboxRow>(`
+  /**
+   * 某任务最近的 N 条 mailbox（唤醒 prompt 末尾的"相关邮件摘要"用），时间升序返回。
+   * 传 line 时为**线内口径**：同一 taskId 被多条线引用时，快照只取本线邮件（v3 复审 F2）；
+   * 遗留 NULL 行按"归属缺省"只在默认线可见，与读取口径一致。
+   */
+  listByTask(taskId: string, limit = 3, line?: MailboxLineFilter): TeamMailboxRow[] {
+    const scope = line ? ` AND ${MAILBOX_LINE_SCOPE_SQL}` : ''
+    return getDb().prepare<{ taskId: string; limit: number } & Partial<MailboxLineFilter>, TeamMailboxRow>(`
       SELECT * FROM team_mailbox
-      WHERE task_id = @taskId
+      WHERE task_id = @taskId${scope}
       ORDER BY created_at DESC, rowid DESC
       LIMIT @limit
-    `).all({ taskId, limit }).reverse()
+    `).all({ ...(line ?? {}), taskId, limit }).reverse()
   },
 
   /** 该成员在时间窗内写过的全部 mailbox（静默回合判定"本回合有没有汇报"用，时间窗起点 = 回合 human 消息时间戳）。 */

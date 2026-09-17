@@ -4,10 +4,12 @@ import {
   teamMailboxStore,
   teamMemberStore,
   teamStore,
+  type MailboxLineFilter,
   type TeamMailboxRow,
   type TeamMemberRow,
   type TeamRow,
 } from '../store/teams.js'
+import { defaultLine, taskLine } from './team-line-scope.js'
 import { teamConversationStore } from '../store/team-conversations.js'
 import { sessionStore } from '../store/sessions.js'
 import { events } from './events.js'
@@ -229,7 +231,9 @@ function leaderSessionIdFromMessage(team: TeamRow, message: TeamMailboxRow): str
 }
 
 /** 唤醒 prompt 末尾"触发内容快照"：任务状态 + 相关邮件摘要。
- *  与正文有重叠，但位置在**末尾**：被合并/延迟的唤醒里，Master 仍能从尾段看到"为什么被叫醒"。 */
+ *  与正文有重叠，但位置在**末尾**：被合并/延迟的唤醒里，Master 仍能从尾段看到"为什么被叫醒"。
+ *  邮件摘要按**触发邮件所在线**过滤（F2）：同一 taskId 被两线引用时，只给本线邮件；
+ *  任务状态行（taskLines）保留——它是"为什么被叫醒"的必要信息，不属于任何线的私密内容。 */
 function buildWakeTriggerSnapshot(input: {
   team: TeamRow
   member: TeamMemberRow
@@ -241,9 +245,20 @@ function buildWakeTriggerSnapshot(input: {
     ? [`任务：${input.task.title} (${input.task.id}) · 状态 ${input.task.status}${input.task.stage ? ` · 阶段 ${input.task.stage}` : ''}`]
     : []
   const related = input.task
-    ? teamMailboxStore.listByTask(input.task.id, 3)
+    ? teamMailboxStore.listByTask(input.task.id, 3, snapshotLineFilter(input.team.id, input.message, input.task))
     : (input.message ? [input.message] : [])
   return { taskLines, mailboxLines: related.map((message) => formatWakeMailboxLine(message, now)) }
+}
+
+/** 快照要取的线：邮件触发的唤醒取该邮件所在线（遗留 NULL 行按默认线，与读取口径一致）；
+ *  任务触发的唤醒取任务所在线（无来源会话的历史任务同样按默认线）。无线可归 → undefined（不追加邮件摘要）。 */
+function snapshotLineFilter(teamId: string, message?: TeamMailboxRow, task?: TaskRow): MailboxLineFilter | undefined {
+  const defaultConversationId = defaultLine(teamId)?.id ?? null
+  const conversationId = (message ? message.conversation_id ?? defaultConversationId : undefined)
+    ?? (task ? taskLine(teamId, task.id)?.id : undefined)
+    ?? defaultConversationId
+  if (!conversationId) return undefined
+  return { conversationId, defaultConversationId }
 }
 
 function formatWakeMailboxLine(message: TeamMailboxRow, now: number): string {

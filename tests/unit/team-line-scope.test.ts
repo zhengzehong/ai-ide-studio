@@ -273,6 +273,44 @@ describe('唤醒：同窗拼接（消灭"被 2s 任务唤醒吞掉"）', () => {
     expect(prompt.trimEnd().endsWith('快照里的汇报正文')).toBe(true)
   })
 
+  test('唤醒快照按线（F2）：同一 taskId 被两线引用时，各线只看到本线邮件摘要', async () => {
+    vi.useFakeTimers()
+    const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue()
+    vi.spyOn(sessionManager, 'isPromptActive').mockReturnValue(false)
+    const f = createFixture()
+    const { first, second } = createTwoLines(f)
+    const task = teamService.createTask({
+      teamId: f.teamId, title: '两线共用的活', assigneeMemberId: f.memberId, sourceSessionId: first.masterSessionId,
+    })
+    // 同一 taskId 两线各一封 report（成员在两线各有一格，汇报各自落在本线）
+    teamService.sendMailbox({
+      teamId: f.teamId, type: 'report', content: '一线自己的汇报', fromMemberId: f.memberId,
+      taskId: task.id, sourceSessionId: first.memberSessionId,
+    })
+    teamService.sendMailbox({
+      teamId: f.teamId, type: 'report', content: '二线借用的汇报', fromMemberId: f.memberId,
+      taskId: task.id, sourceSessionId: second.memberSessionId,
+    })
+    vi.advanceTimersByTime(15_100)
+
+    // 反证：该 taskId 不带线过滤时两线邮件都在（"只含本线"来自线过滤，而不是数据缺失）
+    expect(teamMailboxStore.listByTask(task.id, 3).map((row) => row.content))
+      .toEqual(['一线自己的汇报', '二线借用的汇报'])
+
+    // 两线各被唤醒一次（各自的 Leader 格子），快照互不串线
+    expect(enqueue).toHaveBeenCalledTimes(2)
+    const promptBySession = new Map(enqueue.mock.calls.map(([sessionId, prompt]) => [sessionId, String(prompt)]))
+    const firstPrompt = promptBySession.get(first.masterSessionId)!
+    const secondPrompt = promptBySession.get(second.masterSessionId)!
+    expect(firstPrompt).toContain('一线自己的汇报')
+    expect(firstPrompt).not.toContain('二线借用的汇报')
+    expect(secondPrompt).toContain('二线借用的汇报')
+    expect(secondPrompt).not.toContain('一线自己的汇报')
+    // 任务状态行（"为什么被叫醒"）不按线过滤，两线都在
+    expect(firstPrompt).toContain(`任务：两线共用的活 (${task.id}) · 状态 draft`)
+    expect(secondPrompt).toContain(`任务：两线共用的活 (${task.id}) · 状态 draft`)
+  })
+
   test('唤醒落线：二线的邮件只唤醒二线 Master，不惊动一线', async () => {
     vi.useFakeTimers()
     const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue()
