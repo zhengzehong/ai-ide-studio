@@ -1,6 +1,7 @@
 import { eventCategoryStore, type EventCategoryRow, type UpsertEventCategoryInput } from '../store/event-categories.js'
 import {
   eventCenterEventStore,
+  type EventCenterEventListRow,
   type EventCenterEventRow,
   type EventListFilter,
   type EventListPage,
@@ -92,7 +93,7 @@ export const eventCenterService = {
     return { categoryId: id, deleted }
   },
 
-  listEvents(filter?: EventListFilter): EventCenterEventRow[] {
+  listEvents(filter?: EventListFilter): EventCenterEventListRow[] {
     return eventCenterEventStore.list(filter)
   },
 

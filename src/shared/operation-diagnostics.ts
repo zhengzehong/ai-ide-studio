@@ -9,6 +9,13 @@ export interface OperationDescriptor {
 export interface OperationSnapshot extends OperationDescriptor {
   startedAtMs: number
   elapsedMs: number
+  /**
+   * 该次同步调用消耗的 CPU 时间(用户态+内核态)。
+   * ioWaitMs = elapsedMs - cpuMs:两者接近说明时间花在等 I/O(磁盘/网络),
+   * ioWaitMs≈0 说明是 CPU/GC 忙。用于把"慢"直接归因成 I/O 等待还是计算。
+   */
+  cpuMs?: number
+  ioWaitMs?: number
 }
 
 export interface OperationDiagnosticsSnapshot {
@@ -52,14 +59,21 @@ export function createOperationDiagnostics(
 
   const trackSync = <T>(descriptor: OperationDescriptor, execute: () => T): T => {
     const startedAtMs = now()
+    const cpuStarted = process.cpuUsage()
     try {
       return execute()
     } finally {
       const completedAtMs = now()
+      const elapsedMs = Math.max(0, completedAtMs - startedAtMs)
+      const cpu = process.cpuUsage(cpuStarted)
+      const cpuMs = (cpu.user + cpu.system) / 1000
       recentSync.unshift({
         ...descriptor,
         startedAtMs,
-        elapsedMs: Math.max(0, completedAtMs - startedAtMs),
+        elapsedMs,
+        // 同步调用期间的墙钟 vs CPU:差值即 I/O 等待(2026-09-16 卡顿定案埋点)
+        cpuMs: Math.min(cpuMs, elapsedMs),
+        ioWaitMs: Math.max(0, elapsedMs - Math.min(cpuMs, elapsedMs)),
       })
       recentSync.sort((left, right) => right.elapsedMs - left.elapsedMs)
       recentSync.splice(maxRecentOperations)

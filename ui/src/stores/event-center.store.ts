@@ -42,7 +42,6 @@ export interface EventCenterEventData {
   status: string
   tags_json: string
   payload_json: string
-  evidence_json: string
   dedupe_key: string | null
   created_by_agent_id: string | null
   created_at: string

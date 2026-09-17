@@ -28,6 +28,9 @@ export interface EventCenterEventRow {
   archived_at: string | null
 }
 
+/** 列表/分页返回的行(不含 evidence_json,见 LIST_COLUMNS)。 */
+export type EventCenterEventListRow = Omit<EventCenterEventRow, 'evidence_json'>
+
 export interface CreateEventCenterEventInput {
   projectId?: string | null
   categoryId: string
@@ -56,11 +59,25 @@ export interface EventListFilter {
 }
 
 export interface EventListPage {
-  items: EventCenterEventRow[]
+  items: EventCenterEventListRow[]
   total: number
   limit: number
   offset: number
 }
+
+/**
+ * 列表投影:不含 evidence_json(每行均值 2B、事件中心 UI 未使用,详见 P0-2)。
+ * payload_json 必须保留 —— 列表 chips(EventTable.tsx)与详情面板(EventDetailPanel.tsx)
+ * 都直接读列表项的 payload_json。
+ */
+const LIST_COLUMNS = `id, project_id, category_id, title, summary, source_type, source_id, source_label,
+  priority, confidence, status, tags_json, payload_json, dedupe_key, created_by_agent_id,
+  created_at, updated_at, archived_at`
+
+/** 列表默认返回上限;显式传 limit 才可超过(见 list())。 */
+export const DEFAULT_EVENT_LIST_LIMIT = 200
+/** 即便显式传 limit 也不放行的硬上限:再大就会撞 2MB 的 realtime 帧预算。 */
+export const MAX_EVENT_LIST_LIMIT = 1000
 
 export const eventCenterEventStore = {
   create(input: CreateEventCenterEventInput): EventCenterEventRow {
@@ -106,15 +123,16 @@ export const eventCenterEventStore = {
     return getDb().prepare<[string], EventCenterEventRow>('SELECT * FROM event_center_events WHERE id = ?').get(id)
   },
 
-  list(filter: EventListFilter = {}): EventCenterEventRow[] {
+  list(filter: EventListFilter = {}): EventCenterEventListRow[] {
     const { where, params } = buildListQuery(filter)
     return getDb()
-      .prepare<Record<string, string>, EventCenterEventRow>(`
-        SELECT * FROM event_center_events
+      .prepare<Record<string, string | number>, EventCenterEventListRow>(`
+        SELECT ${LIST_COLUMNS} FROM event_center_events
         ${where}
         ORDER BY created_at DESC, rowid DESC
+        LIMIT @limit
       `)
-      .all(params)
+      .all({ ...params, limit: listLimit(filter.limit) })
   },
 
   listPage(filter: EventListFilter = {}): EventListPage {
@@ -128,8 +146,8 @@ export const eventCenterEventStore = {
       `)
       .get(params)?.total ?? 0
     const items = getDb()
-      .prepare<Record<string, string | number>, EventCenterEventRow>(`
-        SELECT * FROM event_center_events
+      .prepare<Record<string, string | number>, EventCenterEventListRow>(`
+        SELECT ${LIST_COLUMNS} FROM event_center_events
         ${where}
         ORDER BY created_at DESC, rowid DESC
         LIMIT @limit OFFSET @offset
@@ -180,6 +198,16 @@ function buildListQuery(filter: EventListFilter): { where: string; params: Recor
 function clampLimit(value: number | undefined): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return 30
   return Math.max(1, Math.min(100, Math.floor(value)))
+}
+
+/**
+ * list() 的上限:不传 → 默认 200(历史上这里完全无 LIMIT,任何不带 limit 的调用方
+ * 会拿到全量 —— 实测 7,697 行 / 5.9MB JSON,超 2MB realtime 帧预算被拒)。
+ * 显式传 limit 放行,但有硬上限 MAX_EVENT_LIST_LIMIT 兜底。
+ */
+function listLimit(value: number | undefined): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_EVENT_LIST_LIMIT
+  return Math.max(1, Math.min(MAX_EVENT_LIST_LIMIT, Math.floor(value)))
 }
 
 function clampOffset(value: number | undefined): number {
