@@ -168,6 +168,42 @@ describe('team.mailbox.send default type', () => {
   })
 })
 
+describe('team.mailbox.send self-addressed warning (P1-E′)', () => {
+  test('toMemberId 等于发送者：返回显式警告，记录原样保存（不改写）', async () => {
+    const fixture = createTeamFixture()
+
+    const result = await sendTeamMailboxHandler.execute(
+      {
+        teamId: fixture.team.id,
+        content: '终审完成（发给自己）',
+        fromMemberId: fixture.member.id,
+        toMemberId: fixture.member.id,
+        taskId: fixture.task.id,
+      },
+      { sessionId: fixture.memberSession.id },
+    )
+    const payload = JSON.parse(result.content[0]!.text) as {
+      warning?: string
+      message: { to_member_id: string | null; type: string }
+    }
+    expect(payload.warning).toContain('toMemberId')
+    // 记录如实保存：收件人仍是发送者本人，类型仍按 taskId 缺省为 report
+    expect(payload.message.to_member_id).toBe(fixture.member.id)
+    expect(payload.message.type).toBe('report')
+  })
+
+  test('正常汇报（未填 toMemberId）不带警告', async () => {
+    const fixture = createTeamFixture()
+
+    const result = await sendTeamMailboxHandler.execute(
+      { teamId: fixture.team.id, content: '正常汇报', taskId: fixture.task.id },
+      { sessionId: fixture.memberSession.id },
+    )
+    const payload = JSON.parse(result.content[0]!.text) as { warning?: string }
+    expect(payload.warning).toBeUndefined()
+  })
+})
+
 function createTeamFixture() {
   const project = projectStore.create({ name: 'P', workDir: tmp })
   const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })

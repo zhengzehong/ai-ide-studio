@@ -138,6 +138,97 @@ describe('team silent-turn fallback wake', () => {
     expect(wakePrompts(enqueue).some((text) => text.includes('没有给你发过汇报'))).toBe(false)
   })
 
+  test('回合内只改了任务阶段（中间态 running→running）→ 不算已汇报，兜底照常触发（P0-C′）', () => {
+    vi.useFakeTimers()
+    const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue()
+    vi.spyOn(sessionManager, 'isPromptActive').mockReturnValue(false)
+    const fixture = createFixture()
+
+    vi.advanceTimersByTime(10)
+    messageStore.append(fixture.memberSessionId, { role: 'human', content: '派活内容', senderRole: 'team-assignment' })
+    // 生产形态：先 draft→running，再做 stage-only 更新 —— 两次都不触发任何 Leader 唤醒，
+    // 旧口径会把它当"已汇报"跳过兜底 → 双重静默（2026-09-17 评审 #4）。
+    teamService.updateTask({ teamId: fixture.teamId, taskId: fixture.taskId, status: 'running' })
+    teamService.updateTask({
+      teamId: fixture.teamId, taskId: fixture.taskId, stage: '修复中：核对证据',
+      actor: { teamMemberId: fixture.memberId },
+    })
+    messageStore.append(fixture.memberSessionId, { role: 'agent', content: '改到一半没汇报', status: 'completed' })
+    events.emit('session:committed_done', {
+      sessionId: fixture.memberSessionId, agentId: fixture.memberAgentId, messageId: 'done-stage-only', stopReason: 'end_turn',
+    })
+    vi.advanceTimersByTime(15_100)
+
+    const silent = wakePrompts(enqueue).find((text) => text.includes('没有给你发过汇报'))
+    expect(silent).toBeDefined()
+    expect(silent).toContain('改到一半没汇报')
+  })
+
+  test('回合内把任务改到 completed → 算已汇报（兜底不触发），任务唤醒照常（P0-C′）', () => {
+    vi.useFakeTimers()
+    const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue()
+    vi.spyOn(sessionManager, 'isPromptActive').mockReturnValue(false)
+    const fixture = createFixture()
+
+    vi.advanceTimersByTime(10)
+    messageStore.append(fixture.memberSessionId, { role: 'human', content: '派活内容', senderRole: 'team-assignment' })
+    teamService.updateTask({
+      teamId: fixture.teamId, taskId: fixture.taskId, status: 'completed', stage: '已收口',
+      actor: { teamMemberId: fixture.memberId },
+    })
+    messageStore.append(fixture.memberSessionId, { role: 'agent', content: '任务已完成并已更新状态', status: 'completed' })
+    events.emit('session:committed_done', {
+      sessionId: fixture.memberSessionId, agentId: fixture.memberAgentId, messageId: 'done-completed', stopReason: 'end_turn',
+    })
+    vi.advanceTimersByTime(15_100)
+
+    expect(wakePrompts(enqueue).some((text) => text.includes('没有给你发过汇报'))).toBe(false)
+    expect(String(enqueue.mock.calls[0]?.[1])).toContain('Status: completed')
+  })
+
+  test('非唤醒级汇报（缺 taskId 的 message）不算已汇报 → 兜底仍触发（P0-C′ 不误标）', () => {
+    vi.useFakeTimers()
+    const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue()
+    vi.spyOn(sessionManager, 'isPromptActive').mockReturnValue(false)
+    const fixture = createFixture()
+
+    vi.advanceTimersByTime(10)
+    messageStore.append(fixture.memberSessionId, { role: 'human', content: '派活内容', senderRole: 'team-assignment' })
+    // 事故形态：type 缺省 + 无 taskId → 非唤醒级，Leader 收不到（不该被当成"已汇报"）
+    teamService.sendMailbox({
+      teamId: fixture.teamId, type: 'message', content: '没带 taskId 的结论', fromMemberId: fixture.memberId,
+    })
+    messageStore.append(fixture.memberSessionId, { role: 'agent', content: '结论已发（但其实没唤醒 Leader）', status: 'completed' })
+    events.emit('session:committed_done', {
+      sessionId: fixture.memberSessionId, agentId: fixture.memberAgentId, messageId: 'done-nonwake', stopReason: 'end_turn',
+    })
+    vi.advanceTimersByTime(15_100)
+
+    const silent = wakePrompts(enqueue).find((text) => text.includes('没有给你发过汇报'))
+    expect(silent).toBeDefined()
+    expect(silent).toContain('结论已发（但其实没唤醒 Leader）')
+  })
+
+  test('任务未指派给成员（Leader 漏传 assignee）→ 兜底仍触发且带成员原文（P0-B）', () => {
+    vi.useFakeTimers()
+    const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue()
+    vi.spyOn(sessionManager, 'isPromptActive').mockReturnValue(false)
+    const fixture = createFixture()
+    // 复现 2026-09-17 glm53 事故形态：任务没挂到成员名下（assignee=null）
+    teamService.updateTask({ teamId: fixture.teamId, taskId: fixture.taskId, assigneeMemberId: null })
+
+    runDispatchedTurn({
+      sessionId: fixture.memberSessionId,
+      agentId: fixture.memberAgentId,
+      reply: '终审完成：must-fix=0，放行合并',
+    })
+    vi.advanceTimersByTime(15_100)
+
+    const silent = wakePrompts(enqueue).find((text) => text.includes('没有给你发过汇报'))
+    expect(silent).toBeDefined()
+    expect(silent).toContain('终审完成：must-fix=0，放行合并')
+  })
+
   test('系统署名回合（team-system）→ 不触发（来源锁）', () => {
     vi.useFakeTimers()
     const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue()

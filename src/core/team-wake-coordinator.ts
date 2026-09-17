@@ -16,7 +16,8 @@ import { buildLeaderWakePrompt } from './team-prompts.js'
 
 const log = createChildLogger('team-wake')
 const WAKE_MAILBOX_TYPES = new Set(['report', 'result', 'question', 'blocked'])
-const WAKE_TASK_STATUSES = new Set(['completed', 'needs_input'])
+/** 任务状态唤醒口径：只有这两个状态会真正唤醒 Leader；与 team-silent-turn 的"已汇报判定"共用同一份定义（P0-C′）。 */
+export const WAKE_TASK_STATUSES = new Set(['completed', 'needs_input'])
 const WAKE_DELAY_MS = 2_000
 const TASK_MAILBOX_WAKE_DELAY_MS = 15_000
 const activeLeaderSessions = new Set<string>()

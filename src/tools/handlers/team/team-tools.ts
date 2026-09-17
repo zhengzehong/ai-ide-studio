@@ -1,6 +1,9 @@
 import { teamService } from '../../../core/teams.js'
+import { createChildLogger } from '../../../core/logger.js'
 import type { ToolContext, ToolHandler, ToolHandlerInput, ToolHandlerResult } from '../../types.js'
 import { assertTeamMemberAccess } from '../../../core/team-access.js'
+
+const log = createChildLogger('team-tools')
 
 export const listTeamsHandler: ToolHandler = {
   name: 'team.list',
@@ -162,7 +165,7 @@ export const listTeamMailboxHandler: ToolHandler = {
 
 export const sendTeamMailboxHandler: ToolHandler = {
   name: 'team.mailbox.send',
-  description: '写入团队留言、问题、结果或汇报，不触发 Agent 执行',
+  description: '写入团队留言、问题、结果或汇报，不触发 Agent 执行；成员汇报请带 taskId，并把 toMemberId 填 Leader/留空（不要填自己）',
   inputSchema: {
     type: 'object',
     properties: {
@@ -184,18 +187,36 @@ export const sendTeamMailboxHandler: ToolHandler = {
       throw new Error('fromMemberId 不匹配当前成员上下文')
     }
     const fromMemberId = context.teamMemberId ?? inputFromMemberId
+    const toMemberId = optionalString(input, 'toMemberId')
     const message = teamService.sendMailbox({
       teamId,
       // 带 taskId 的汇报默认按 'report' 处理：任务汇报应进入 Leader 唤醒白名单，避免默认 'message' 静默。
       type: optionalString(input, 'type') ?? (optionalString(input, 'taskId') ? 'report' : 'message'),
       content: requireString(input, 'content'),
       fromMemberId,
-      toMemberId: optionalString(input, 'toMemberId'),
+      toMemberId,
       taskId: optionalString(input, 'taskId'),
       payload: input.payload,
       sourceSessionId: context.sessionId,
     })
-    return jsonResult({ message })
+    // P1-E′：自寄消息（to === from）显式警告 —— 记录如实保存、不改写、不静默吞。
+    // 这类消息在语义上是"自记档"：Leader 不会被点名（唤醒只看 from + 类型），成员却容易以为已经汇报过。
+    const selfAddressed = Boolean(fromMemberId && toMemberId && fromMemberId === toMemberId)
+    if (selfAddressed) {
+      log.warn(
+        { teamId, memberId: fromMemberId, messageId: message.id, type: message.type, taskId: message.task_id },
+        'Team mailbox message addressed to the sender itself; Master/Leader is not the recipient',
+      )
+    }
+    return jsonResult({
+      message,
+      ...(selfAddressed
+        ? {
+          warning: 'toMemberId 填的是你自己：记录已如实保存，但 Master/Leader 不会因此被点名收到。'
+            + '汇报请把 toMemberId 填 Leader（或留空广播），并带上本次 taskId。',
+        }
+        : {}),
+    })
   },
 }
 

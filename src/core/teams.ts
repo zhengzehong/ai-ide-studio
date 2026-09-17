@@ -24,6 +24,7 @@ import { teamWakeCoordinator } from './team-wake-coordinator.js'
 import { applyToolProfileToAgent } from '../tools/team-profiles.js'
 import { teamConversationStore } from '../store/team-conversations.js'
 import { teamConversationService, resolveTeamLeaderSession, ensureMemberInActiveConversations, ensureMemberInConversation } from './team-conversations.js'
+import { backfillTaskAssignee } from './team-task-assignee.js'
 // 副作用导入：注册 session:committed_done 上的静默回合兜底唤醒监听（P0b，见 team-silent-turn.ts）。
 import './team-silent-turn.js'
 export type { TeamConversationDetail } from './team-conversations.js'
@@ -196,7 +197,7 @@ export const teamService = {
     const member = requireMember(input.memberId)
     ensureMemberInTeam(member, team)
     const task = input.taskId ? ensureTaskInTeam(input.taskId, team.id) : undefined
-    if (task) markTaskDispatched(team.id, task, member)
+    if (task) markTaskDispatched(team.id, backfillTaskAssignee(task, member), member) // P0-A：派发即补空指派
     const prompt = buildTeamMemberPrompt({ team, member, content: input.content, taskId: input.taskId, directed: input.directed })
     const conversation = input.sourceSessionId ? teamConversationStore.getBySession(input.sourceSessionId) : undefined
     // 跨团队护栏：构造调用不得借 sourceSessionId 把别的团队的会话线当成本次目标的格子宿主。

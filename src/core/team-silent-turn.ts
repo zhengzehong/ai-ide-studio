@@ -15,17 +15,20 @@ import { events, type AppEvents } from './events.js'
 import { createChildLogger } from './logger.js'
 import { messageStore } from '../store/sessions.js'
 import { isWakeEligibleMailbox, teamMailboxStore, teamMemberStore, teamStore } from '../store/teams.js'
-import { taskEventStore, taskStore } from '../store/tasks.js'
+import { taskEventStore, taskStore, type TaskEventRow } from '../store/tasks.js'
 import { teamConversationStore } from '../store/team-conversations.js'
 import { turnProcessItemStore } from '../store/turn-process-items.js'
-import { teamWakeCoordinator } from './team-wake-coordinator.js'
+import { teamWakeCoordinator, WAKE_TASK_STATUSES } from './team-wake-coordinator.js'
 import { buildSilentTurnWakePrompt, truncateForWake } from './team-prompts.js'
 
 const log = createChildLogger('team-silent-turn')
 
 /** 来源锁：只有团队派发 / 用户定向回合参与判定；系统唤醒回合（team-system/system/agent/autonomy/secretary…）天然排除。 */
 const TEAM_TURN_SENDER_ROLES = new Set(['team-assignment', 'team-directed'])
-/** 视为"成员有汇报动作"的任务事件类型（任务行没有 updated_at，事件表是唯一来源）。 */
+/**
+ * 任务事件里"可能构成汇报动作"的类型（任务行没有 updated_at，事件表是唯一来源）。
+ * 注意：类型命中还不够 —— 只有 to_status 真正唤醒过 Leader 的事件才算"已汇报"（P0-C′，见 isTaskWakeReportEvent）。
+ */
 const TASK_PROGRESS_EVENT_TYPES = new Set(['updated', 'manual_status_change', 'assigned_agent'])
 const TERMINAL_TASK_STATUSES = new Set(['completed', 'cancelled'])
 
@@ -33,7 +36,6 @@ const HOUR_MS = 60 * 60_000
 const WAKE_DELAY_MS = readNumberEnv('TEAM_SILENT_TURN_WAKE_DELAY_MS', 15_000)
 const MAX_NOTICES_PER_HOUR = readNumberEnv('TEAM_SILENT_TURN_MAX_PER_HOUR', 6)
 const NO_PROGRESS_SUPPRESS_MS = readNumberEnv('TEAM_SILENT_TURN_SUPPRESS_MS', HOUR_MS)
-const REQUIRE_PENDING_TASK = process.env.TEAM_SILENT_TURN_REQUIRE_TASK !== '0'
 
 /** 每成员最后一次静默提醒时刻（无新进展抑制用）；只在内存，重启清零（可接受，见方案 §2.6 风险 6）。 */
 const lastNoticeAt = new Map<string, number>()
@@ -63,13 +65,16 @@ function handleSilentTurn(ev: AppEvents['session:committed_done']): void {
   const turnStartedAtIso = human.timestamp
 
   // ── Step 2 · 汇报判定：时间窗起点 = 回合开始（human 消息时间戳）
-  if (hasNewProgressSince(team.id, member.id, turnStartedAtIso)) return
+  if (hasMemberReportedSince(team.id, member.id, turnStartedAtIso)) return
 
-  // ── Step 3 · 降噪三闸
+  // ── Step 3 · 降噪：只保留"抑制窗口 + 频次帽"两道丢弃闸
+  // P0-B：原先的 pendingTasks 硬门槛已移除 —— 任务没指派（Leader 建任务漏传 assigneeMemberId）时
+  // pendingTasks=0 会让兜底连成员回复原文都不取就 return，正是 2026-09-17 glm53 汇报丢失的直接死点。
+  // pendingTasks 现在只作 prompt 富化字段（Task 行），不参与"兜不兜"的判定。
+  // TODO(双审遗留 · 本批不做)：任务 update 的"先删后插"间隙 —— 按评审裁定留待后续批次处理。
   const pendingTasks = taskStore
     .listByTeam(team.id)
     .filter((task) => task.assignee_member_id === member.id && !TERMINAL_TASK_STATUSES.has(task.status))
-  if (REQUIRE_PENDING_TASK && pendingTasks.length === 0) return
   const now = Date.now()
   if (isSuppressedByRecentNotice(member.id, team.id, now)) return
   if (!consumeHourlyQuota(member.id, now)) return
@@ -105,15 +110,55 @@ function handleSilentTurn(ev: AppEvents['session:committed_done']): void {
   )
 }
 
-/** 时间窗内该成员是否给过"汇报"：唤醒级 mailbox，或名下任务的状态更新事件。 */
-function hasNewProgressSince(teamId: string, memberId: string, sinceIso: string): boolean {
-  const mailbox = teamMailboxStore.listByMemberSince(teamId, memberId, sinceIso)
-  if (mailbox.some((message) => isWakeEligibleMailbox(message))) return true
+/** 时间窗内该成员名下任务的事件（两个判定共用同一份取数）。 */
+function memberTaskEventsSince(teamId: string, memberId: string, sinceIso: string): TaskEventRow[] {
   const taskIds = taskStore.listByTeam(teamId)
     .filter((task) => task.assignee_member_id === memberId)
     .map((task) => task.id)
   return taskEventStore.listByTaskIdsSince(taskIds, sinceIso)
-    .some((event) => TASK_PROGRESS_EVENT_TYPES.has(event.type))
+}
+
+/**
+ * Step 2 口径（P0-C′）：时间窗内该成员是否**报告过**——
+ * 唤醒级 mailbox，或真正唤醒过 Leader 的任务状态事件。
+ */
+function hasMemberReportedSince(teamId: string, memberId: string, sinceIso: string): boolean {
+  const mailbox = teamMailboxStore.listByMemberSince(teamId, memberId, sinceIso)
+  if (mailbox.some((message) => isWakeEligibleMailbox(message))) return true
+  return memberTaskEventsSince(teamId, memberId, sinceIso).some((event) => isTaskWakeReportEvent(event))
+}
+
+/**
+ * 锁 2 口径：时间窗内是否有任何进展（含 running 等中间态任务事件）。
+ * 只用于解除"无新进展抑制"，**不参与"已汇报"判定** —— 中间态更新能证明成员还在干活（不该反复催），
+ * 但它没有唤醒过 Leader（不能当作已汇报，见 isTaskWakeReportEvent）。
+ */
+function hasNewProgressSince(teamId: string, memberId: string, sinceIso: string): boolean {
+  const mailbox = teamMailboxStore.listByMemberSince(teamId, memberId, sinceIso)
+  if (mailbox.some((message) => isWakeEligibleMailbox(message))) return true
+  return memberTaskEventsSince(teamId, memberId, sinceIso).some((event) => TASK_PROGRESS_EVENT_TYPES.has(event.type))
+}
+
+/**
+ * P0-C′：任务事件算不算"已汇报"。
+ * 只有 to_status ∈ WAKE_TASK_STATUSES（completed / needs_input，与 team-wake-coordinator 同源）才算 ——
+ * 这类更新本身会唤醒 Leader，兜底再发一次属于重复通知。
+ * 中间态（running→running 的 stage-only 更新等）不唤醒 Leader，若在"已汇报"判定里算数会造成
+ * "兜底被跳过 + 唤醒没发生"的双重静默（2026-09-17 评审 #4，生产可达）。
+ */
+function isTaskWakeReportEvent(event: Pick<TaskEventRow, 'type' | 'payload_json'>): boolean {
+  if (!TASK_PROGRESS_EVENT_TYPES.has(event.type)) return false
+  const toStatus = readEventToStatus(event.payload_json)
+  return toStatus !== null && WAKE_TASK_STATUSES.has(toStatus)
+}
+
+function readEventToStatus(payloadJson: string): string | null {
+  try {
+    const payload = JSON.parse(payloadJson) as { to_status?: unknown }
+    return typeof payload.to_status === 'string' ? payload.to_status : null
+  } catch {
+    return null
+  }
 }
 
 /** 锁 2：上次提醒后 60 分钟内、且期间没有任何新进展 → 不再提醒（防"唤醒→重派→又静默→再唤醒"循环）。 */

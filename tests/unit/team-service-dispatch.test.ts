@@ -68,6 +68,66 @@ describe('team dispatch lifecycle', () => {
     expect(taskStore.get(fixture.task.id)).toMatchObject({ status: 'completed', stage: '已完成' })
   })
 
+  test('未指派任务在派发时自动补 assignee 与 assigned_agent_id（P0-A 回填）', () => {
+    vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue()
+    const fixture = createTeamFixture()
+    const task = teamService.createTask({ teamId: fixture.team.id, title: '建任务时漏传 assigneeMemberId' })
+    expect(task.assignee_member_id).toBeNull()
+
+    teamService.dispatchMessage({
+      teamId: fixture.team.id,
+      memberId: fixture.member.id,
+      content: '请完成这个任务',
+      taskId: task.id,
+    })
+
+    expect(taskStore.get(task.id)).toMatchObject({
+      status: 'running',
+      assignee_member_id: fixture.member.id,
+      assigned_agent_id: fixture.member.agent_id,
+    })
+  })
+
+  test('重派已在 running 的漏指派任务同样能补上（P0-A 死码陷阱守卫）', () => {
+    vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue()
+    const fixture = createTeamFixture()
+    const task = teamService.createTask({ teamId: fixture.team.id, title: '历史遗留：running 但 assignee 为空' })
+    // 复现旧版本派发的产物：状态已 running、assignee 仍为空
+    taskStore.update(task.id, { status: 'running', stage: '已派发给某人，等待成员汇报' })
+
+    teamService.dispatchMessage({
+      teamId: fixture.team.id,
+      memberId: fixture.member.id,
+      content: '继续推进',
+      taskId: task.id,
+    })
+
+    expect(taskStore.get(task.id)).toMatchObject({
+      status: 'running',
+      assignee_member_id: fixture.member.id,
+      assigned_agent_id: fixture.member.agent_id,
+    })
+  })
+
+  test('已指派给他人的任务：派发只补空、不覆盖既有 assignee（P0-A 不覆盖原则）', () => {
+    vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue()
+    const fixture = createTeamFixture()
+    const otherAgent = agentStore.create({ name: 'Other', type: 'dev', runtime: 'mock', projectId: fixture.team.project_id })
+    const other = teamService.spawnMember({ teamId: fixture.team.id, agentId: otherAgent.id, name: 'Other' })
+
+    teamService.dispatchMessage({
+      teamId: fixture.team.id,
+      memberId: other.member.id,
+      content: '帮忙看一眼',
+      taskId: fixture.task.id,
+    })
+
+    expect(taskStore.get(fixture.task.id)).toMatchObject({
+      assignee_member_id: fixture.member.id,
+      assigned_agent_id: fixture.member.agent_id,
+    })
+  })
+
   test('emits created member session so clients can add it without a full reload', () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
