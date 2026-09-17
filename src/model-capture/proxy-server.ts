@@ -7,8 +7,10 @@ import { acquireCaptureRoute, activateCaptureRoutes } from './route-bindings.js'
 import { getCaptureSettings } from './capture-config.js'
 import {
   beginCapture,
+  captureCleanupPending,
   captureRoot,
   cleanupExpiredCaptures,
+  parseCaptureMaxTotalBytes,
   recoverPendingCaptures,
   waitCaptureFlush,
   type CaptureTerminalStatus,
@@ -29,6 +31,9 @@ const log = createChildLogger('model-capture-proxy')
 
 const IDLE_TIMEOUT_MS = 120_000
 const MAX_REQUEST_BODY_BYTES = 64 * 1024 * 1024
+/** 抓包清理节奏:常规每小时一次;上一轮因时间预算未删完时 30s 后提前重试。 */
+const CLEANUP_INTERVAL_MS = 60 * 60 * 1000
+const CLEANUP_RETRY_MS = 30 * 1000
 
 export interface ModelCaptureProxy {
   readonly port: number
@@ -49,20 +54,38 @@ export async function startModelCaptureProxy(options: ModelCaptureProxyOptions):
   let actualPort = options.port
 
   try {
-    recoverPendingCaptures(captureRootDir)
-    cleanupExpiredCaptures(captureRootDir, getCaptureSettings().retentionDays)
+    await recoverPendingCaptures(captureRootDir)
+    await cleanupExpiredCaptures(captureRootDir, getCaptureSettings().retentionDays, {
+      maxTotalBytes: parseCaptureMaxTotalBytes(process.env.CAPTURE_MAX_TOTAL_BYTES),
+    })
   } catch (err) {
     log.warn({ err }, '抓包启动恢复/清理失败(不阻塞启动)')
   }
 
-  const cleanupTimer = setInterval(() => {
-    try {
-      cleanupExpiredCaptures(captureRootDir, getCaptureSettings().retentionDays)
-    } catch (err) {
-      log.warn({ err }, '抓包过期目录清理失败')
-    }
-  }, 60 * 60 * 1000)
-  cleanupTimer.unref()
+  // 分片异步清理:单轮 3s 时间预算,超出留待下一轮;上一轮有剩余时 30s 后提前重试,
+  // 否则维持每小时一次。总量上限默认关闭(env CAPTURE_MAX_TOTAL_BYTES)。
+  const cleanupTimerRef: { current?: ReturnType<typeof setTimeout> } = {}
+  let cleanupStopped = false
+  const runCleanup = (): void => {
+    if (cleanupStopped) return
+    void cleanupExpiredCaptures(captureRootDir, getCaptureSettings().retentionDays, {
+      maxTotalBytes: parseCaptureMaxTotalBytes(process.env.CAPTURE_MAX_TOTAL_BYTES),
+    })
+      .then(() => {
+        if (cleanupStopped) return
+        scheduleCleanup(captureCleanupPending() ? CLEANUP_RETRY_MS : CLEANUP_INTERVAL_MS)
+      })
+      .catch((err: unknown) => {
+        log.warn({ err }, '抓包过期目录清理失败')
+        if (cleanupStopped) return
+        scheduleCleanup(CLEANUP_INTERVAL_MS)
+      })
+  }
+  const scheduleCleanup = (delayMs: number): void => {
+    cleanupTimerRef.current = setTimeout(runCleanup, delayMs)
+    cleanupTimerRef.current.unref()
+  }
+  scheduleCleanup(CLEANUP_INTERVAL_MS)
 
   const server: Server = http.createServer((req, res) => { void handleCaptureRequest(req, res, captureRootDir, idleTimeoutMs) })
   let listenFailed = false
@@ -92,7 +115,8 @@ export async function startModelCaptureProxy(options: ModelCaptureProxyOptions):
     get listening() { return !listenFailed && server.listening },
     async close() {
       deactivateRoutes()
-      clearInterval(cleanupTimer)
+      cleanupStopped = true
+      if (cleanupTimerRef.current) clearTimeout(cleanupTimerRef.current)
       await new Promise<void>((resolve) => {
         if (!server.listening) { resolve(); return }
         server.close(() => resolve())
