@@ -23,6 +23,57 @@ describe('RealtimeOutboundQueue', () => {
     ])
   })
 
+  it('truncates an oversized list result to fit instead of rejecting it (P1)', () => {
+    const queue = new RealtimeOutboundQueue({ maxMessages: 8, maxBytes: 2048 })
+    // 模拟 sessions.events:裸数组、按下标升序,超限时应保留尾部(最新)而不是整条拒掉
+    const events = Array.from({ length: 200 }, (_, index) => ({ sequence: index + 1, type: 'lifecycle.prompt_sent', payload: 'x'.repeat(40) }))
+
+    const result = queue.enqueue({ type: 'result', requestId: 'events-page', data: events })
+
+    expect(result).toMatchObject({ accepted: true, resyncRequired: false })
+    const frames = queue.drain()
+    expect(frames).toHaveLength(1)
+    const delivered = frames[0]?.message
+    expect(delivered?.type).toBe('result')
+    const kept = (delivered as { data: { sequence: number }[] }).data
+    expect(kept.length).toBeGreaterThan(0)
+    expect(kept.length).toBeLessThan(events.length)
+    // 保留的是尾部:最后一条必须是原数组最后一条
+    expect(kept.at(-1)?.sequence).toBe(200)
+    expect(frames[0]?.byteLength).toBeLessThanOrEqual(2048)
+  })
+
+  it('marks a truncated object result with a cursor-friendly flag', () => {
+    const queue = new RealtimeOutboundQueue({ maxMessages: 8, maxBytes: 3072 })
+    const items = Array.from({ length: 100 }, (_, index) => ({ id: `m-${index}`, content: 'y'.repeat(60) }))
+
+    expect(queue.enqueue({
+      type: 'result',
+      requestId: 'messages-page',
+      data: { sessionId: 'session-a', items, hasMore: false, nextCursor: null },
+    }).accepted).toBe(true)
+
+    const message = queue.drain()[0]?.message as { data: { items: unknown[]; truncated?: boolean; droppedCount?: number; hasMore?: boolean; sessionId: string } }
+    expect(message.data.truncated).toBe(true)
+    expect(message.data.hasMore).toBe(true)
+    expect(message.data.droppedCount).toBeGreaterThan(0)
+    expect(message.data.sessionId).toBe('session-a')
+    expect(message.data.items.length).toBeGreaterThan(0)
+    expect(message.data.items.at(-1)).toMatchObject({ id: 'm-99' })
+  })
+
+  it('suppresses duplicate oversized results for the same request id', () => {
+    const queue = new RealtimeOutboundQueue({ maxMessages: 8, maxBytes: 1024 })
+    const oversized: ServerMessage = { type: 'result', requestId: 'huge-object', data: { blob: 'x'.repeat(4096) } }
+
+    // 首次:超限对象无法截断 → 回一条 correlated error(沿用原行为)
+    expect(queue.enqueue(oversized).accepted).toBe(true)
+    expect(queue.drain().map((frame) => frame.message.type)).toEqual(['error'])
+    // 同一 requestId 重发:不再回第二条错误帧(避免重试风暴刷屏)
+    expect(queue.enqueue(oversized).accepted).toBe(false)
+    expect(queue.drain()).toEqual([])
+  })
+
   it('fails the connection explicitly if control replies cannot fit without loss', () => {
     const queue = new RealtimeOutboundQueue({ maxMessages: 1, maxBytes: 1024 })
     queue.enqueue({ type: 'result', requestId: 'first', data: [] })
