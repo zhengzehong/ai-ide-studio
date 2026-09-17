@@ -5,15 +5,15 @@ import { createFileAssetUrl } from '../file-asset-signing.js'
 import type { RpcHandlerMap } from './types.js'
 
 export const filesystemRpcHandlers: RpcHandlerMap = {
-  'fs.list'(msg, { state, sendResult }) {
+  async 'fs.list'(msg, { state, sendResult }) {
     const project = projectStore.get(msg.projectId as string)
     if (!project) throw new Error('项目不存在')
     const dirPath = typeof msg.dirPath === 'string' ? msg.dirPath : ''
     const resolvedPath = dirPath ? resolveFileReference(project.work_dir, dirPath, 'chat.md') : null
     if (resolvedPath && isAbsolute(resolvedPath) && state.authMode !== 'owner') throw new Error('无权访问绝对目录')
     const entries = dirPath
-      ? expandDirectory(project.work_dir, dirPath)
-      : listDirectory(project.work_dir)
+      ? await expandDirectory(project.work_dir, dirPath)
+      : await listDirectory(project.work_dir)
     sendResult(entries)
   },
 

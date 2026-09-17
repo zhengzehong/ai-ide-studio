@@ -122,14 +122,14 @@ describe('filesystem readFile', () => {
     expect(inspectFileReference(workspace, 'missing.md')).toBeNull()
   })
 
-  test('lists an absolute directory with absolute child paths', () => {
+  test('lists an absolute directory with absolute child paths', async () => {
     const workspace = resolve(tmp, 'workspace')
     const external = resolve(tmp, 'external')
     mkdirSync(workspace)
     mkdirSync(resolve(external, 'nested'), { recursive: true })
     writeFileSync(resolve(external, 'readme.md'), '# External')
 
-    const entries = listDirectory(workspace, external)
+    const entries = await listDirectory(workspace, external)
     expect(entries).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: 'nested', path: resolve(external, 'nested'), type: 'directory' }),
       expect.objectContaining({ name: 'readme.md', path: resolve(external, 'readme.md'), type: 'file' }),

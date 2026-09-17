@@ -1,4 +1,6 @@
-import { closeSync, createReadStream, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'fs'
+import { closeSync, createReadStream, existsSync, openSync, readFileSync, readSync, statSync } from 'fs'
+import type { Dirent } from 'fs'
+import { readdir, stat } from 'fs/promises'
 import { join, relative, extname, basename, dirname, isAbsolute, resolve, sep } from 'path'
 import { fileURLToPath } from 'url'
 import { createChildLogger } from './logger.js'
@@ -9,6 +11,8 @@ const log = createChildLogger('fs')
 const MAX_FILE_SIZE = 1024 * 1024
 const MAX_TREE_DEPTH = 10
 const MAX_ENTRIES = 500
+/** 目录扫描的并发 stat/readdir 上限(P0-1):够快,又不会把 libuv 线程池打满。 */
+const SIBLING_SCAN_CONCURRENCY = 32
 
 const IGNORE_DIRS = new Set([
   'node_modules', '.git', 'dist', 'build', '.next', '.nuxt',
@@ -25,6 +29,8 @@ export interface FileEntry {
   size?: number
   extension?: string
   children?: FileEntry[]
+  /** 该目录的子项超过 MAX_ENTRIES 被截断(仅目录条目、且仅在该层真的截断时出现)。 */
+  truncated?: boolean
 }
 
 export type FileKind = 'text' | 'image' | 'audio' | 'video' | 'binary'
@@ -284,7 +290,7 @@ export function inspectFileReference(workDir: string, filePath: string, basePath
   }
 }
 
-export function listDirectory(workDir: string, subPath?: string): FileEntry[] {
+export async function listDirectory(workDir: string, subPath?: string): Promise<FileEntry[]> {
   const resolvedPath = subPath ? resolveFileReference(workDir, subPath, 'chat.md') : ''
   if (subPath && !resolvedPath) return []
   const fullPath = resolvedPath ? resolveSafePath(workDir, resolvedPath) : workDir
@@ -294,54 +300,124 @@ export function listDirectory(workDir: string, subPath?: string): FileEntry[] {
     return []
   }
 
-  return readTree(fullPath, workDir, 0, !!resolvedPath && isAbsolute(resolvedPath))
+  const tree = await readTree(fullPath, workDir, 0, !!resolvedPath && isAbsolute(resolvedPath))
+  if (tree.truncated) {
+    // 顶层截断没有父条目可挂 truncated 标志(RPC 响应仍是 FileEntry[]),
+    // 至少让它在服务端可观测;需要 UI 提示时再扩响应契约。
+    log.warn({ workDir, subPath, maxEntries: MAX_ENTRIES }, '目录项超过上限,顶层列表已截断')
+  }
+  return tree.entries
 }
 
-function readTree(dirPath: string, rootPath: string, depth: number, absolutePaths = false): FileEntry[] {
-  if (depth > MAX_TREE_DEPTH) return []
+/**
+ * 目录树扫描(P0-1 异步化)。
+ * - readdir 用 withFileTypes:目录条目直接由 dirent 判定,免一次 stat(实测目录占 28.6%)
+ * - stat 只用于「文件取 size」与「符号链接跟随」,并发受 SIBLING_SCAN_CONCURRENCY 限制
+ * - 错误语义与同步版一致:readdir 失败返回 [] 并 debug;条目 stat 失败静默跳过
+ * - 截断改为「排序后截断」:返回目录优先+名称序的前 MAX_ENTRIES 项(确定性),
+ *   不再依赖 OS 原生目录序;被截断的那一层通过 truncated 上报
+ */
+async function readTree(
+  dirPath: string,
+  rootPath: string,
+  depth: number,
+  absolutePaths = false,
+): Promise<TreeScanResult> {
+  if (depth > MAX_TREE_DEPTH) return { entries: [], truncated: false }
 
-  let entries: string[]
+  let dirents: Dirent[]
   try {
-    entries = readdirSync(dirPath)
+    dirents = await readdir(dirPath, { withFileTypes: true })
   } catch (err) {
     log.debug({ err, path: dirPath }, '读取目录失败')
-    return []
+    return { entries: [], truncated: false }
   }
 
-  const result: FileEntry[] = []
+  const candidates = dirents
+    .filter((entry) => !isHiddenFileTreeEntry(entry.name))
+    .sort((left, right) => {
+      // 目录优先 + 名称序:先排序再截断,保证"返回的是确定的前 N 项"
+      const leftDir = left.isDirectory()
+      const rightDir = right.isDirectory()
+      if (leftDir !== rightDir) return leftDir ? -1 : 1
+      return left.name.localeCompare(right.name)
+    })
+  const truncated = candidates.length > MAX_ENTRIES
+  const limited = truncated ? candidates.slice(0, MAX_ENTRIES) : candidates
 
-  for (const name of entries) {
-    if (result.length >= MAX_ENTRIES) break
-    if (isHiddenFileTreeEntry(name)) continue
+  const limit = createLimiter(SIBLING_SCAN_CONCURRENCY)
+  const scanned = await Promise.all(
+    limited.map((entry) => limit(() => toFileEntry(dirPath, rootPath, entry, depth, absolutePaths))),
+  )
+  return { entries: scanned.filter((entry): entry is FileEntry => entry !== undefined), truncated }
+}
 
-    const fullPath = join(dirPath, name)
-    const relPath = absolutePaths ? fullPath : relative(rootPath, fullPath).replace(/\\/g, '/')
+async function toFileEntry(
+  dirPath: string,
+  rootPath: string,
+  entry: Dirent,
+  depth: number,
+  absolutePaths: boolean,
+): Promise<FileEntry | undefined> {
+  const fullPath = join(dirPath, entry.name)
+  const relPath = absolutePaths ? fullPath : relative(rootPath, fullPath).replace(/\\/g, '/')
 
-    try {
-      const stat = statSync(fullPath)
-      if (stat.isDirectory()) {
-        const children = depth < 2 ? readTree(fullPath, rootPath, depth + 1, absolutePaths) : undefined
-        result.push({ name, path: relPath, type: 'directory', children })
-      } else if (stat.isFile()) {
-        result.push({
-          name,
-          path: relPath,
-          type: 'file',
-          size: stat.size,
-          extension: extname(name).toLowerCase(),
-        })
-      }
-    } catch {
-      // skip inaccessible entries
+  const asDirectory = async (): Promise<FileEntry> => {
+    const children = depth < 2 ? await readTree(fullPath, rootPath, depth + 1, absolutePaths) : undefined
+    return {
+      name: entry.name,
+      path: relPath,
+      type: 'directory',
+      children: children?.entries,
+      // 只在本层真的被截断时置位,避免给每个目录都挂一个 undefined 字段
+      ...(children?.truncated ? { truncated: true } : {}),
     }
   }
 
-  result.sort((a, b) => {
-    if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
-    return a.name.localeCompare(b.name)
-  })
+  try {
+    // 目录免 stat;符号链接仍需 stat 跟随(保持"软链目录可展开"的既有语义)
+    if (entry.isDirectory()) return await asDirectory()
+    if (entry.isSymbolicLink()) {
+      const linked = await stat(fullPath)
+      if (linked.isDirectory()) return await asDirectory()
+      if (!linked.isFile()) return undefined
+      return {
+        name: entry.name,
+        path: relPath,
+        type: 'file',
+        size: linked.size,
+        extension: extname(entry.name).toLowerCase(),
+      }
+    }
+    if (!entry.isFile()) return undefined
+    const stats = await stat(fullPath)
+    return { name: entry.name, path: relPath, type: 'file', size: stats.size, extension: extname(entry.name).toLowerCase() }
+  } catch {
+    // skip inaccessible entries(与同步版一致)
+    return undefined
+  }
+}
 
-  return result
+interface TreeScanResult {
+  entries: FileEntry[]
+  truncated: boolean
+}
+
+/** 极简并发闸:限制同时进行的 stat/readdir 数量,避免大目录把 libuv 线程池打满。 */
+function createLimiter(limit: number): <T>(task: () => Promise<T>) => Promise<T> {
+  let active = 0
+  const waiting: Array<() => void> = []
+  return async <T>(task: () => Promise<T>): Promise<T> => {
+    if (active >= limit) await new Promise<void>((resolve) => waiting.push(resolve))
+    active += 1
+    try {
+      return await task()
+    } finally {
+      active -= 1
+      const resume = waiting.shift()
+      if (resume) resume()
+    }
+  }
 }
 
 export function readFile(workDir: string, filePath: string): FileContent | null {
@@ -417,7 +493,7 @@ function isHiddenFileTreeEntry(name: string): boolean {
   return IGNORE_DIRS.has(name) || IGNORE_FILES.has(name) || (name.startsWith('.') && name !== '.env.example')
 }
 
-export function expandDirectory(workDir: string, dirPath: string): FileEntry[] {
+export function expandDirectory(workDir: string, dirPath: string): Promise<FileEntry[]> {
   return listDirectory(workDir, dirPath)
 }
 

@@ -20,6 +20,8 @@ export interface FileEntry {
   size?: number
   extension?: string
   children?: FileEntry[]
+  /** 该目录子项超过服务端上限被截断(P0-1)。 */
+  truncated?: boolean
 }
 
 export interface FileContent {

@@ -32,7 +32,7 @@ import { advisorRpcHandlers } from './advisor.js'
 import { spreadsheetRpcHandlers } from './spreadsheets.js'
 import { readingRpcHandlers } from './readings.js'
 import type { RpcContext, RpcHandlerMap } from './types.js'
-import { trackAsyncOperation, trackSyncInvocation } from '../../shared/operation-diagnostics.js'
+import { trackAsyncOperation, trackInvocation } from '../../shared/operation-diagnostics.js'
 
 const rpcHandlers: RpcHandlerMap = {
   ...subscriptionRpcHandlers,
@@ -83,7 +83,10 @@ export async function dispatchRpc(msg: ClientMessage, context: RpcContext): Prom
   await trackAsyncOperation(
     { operationModule: 'gateway:rpc', operation: 'dispatch', context: operationContext },
     async () => {
-      const result = trackSyncInvocation(
+      // trackInvocation:handler 可能是同步的,也可能返回 Promise(fs.list 已异步化)。
+      // 用 trackSyncInvocation 包 async handler 只会量到同步前缀 ≈0ms,
+      // 让 recentSyncOperations 里再也看不到这个操作 —— 这正是 P0-1 要避免的可观测性回归。
+      const result = trackInvocation(
         { operationModule: 'gateway:rpc', operation: 'handler.invoke', context: operationContext },
         () => handler(msg, context),
       )

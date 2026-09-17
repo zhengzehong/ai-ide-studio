@@ -91,6 +91,53 @@ describe('operation diagnostics', () => {
     expect(snapshot?.cpuMs ?? 0).toBeGreaterThan((snapshot?.elapsedMs ?? 0) / 2)
     expect(snapshot?.ioWaitMs ?? 0).toBeLessThan((snapshot?.elapsedMs ?? 0) / 2)
   })
+
+  it('records a promise-returning handler only when it settles (fs.list 异步化后仍可见)', async () => {
+    const clock = createClock([0, 250])
+    const diagnostics = createOperationDiagnostics({ now: clock.now })
+
+    await diagnostics.trackInvocation(
+      { operationModule: 'gateway:rpc', operation: 'handler.invoke', context: { rpcType: 'fs.list' } },
+      async () => {
+        await Promise.resolve()
+        return 'entries'
+      },
+    )
+
+    const [snapshot] = diagnostics.snapshot().recentSyncOperations
+    expect(snapshot).toMatchObject({
+      operationModule: 'gateway:rpc',
+      operation: 'handler.invoke',
+      elapsedMs: 250,
+      context: { rpcType: 'fs.list' },
+    })
+    // 跨 await 的 CPU 时间不属于这次调用 → 不记 cpu/io 分解
+    expect(snapshot?.cpuMs).toBeUndefined()
+    expect(snapshot?.ioWaitMs).toBeUndefined()
+  })
+
+  it('keeps sync behaviour identical through trackInvocation', () => {
+    const clock = createClock([0, 30])
+    const diagnostics = createOperationDiagnostics({ now: clock.now })
+
+    expect(diagnostics.trackInvocation({ operationModule: 'gateway:rpc', operation: 'handler.invoke' }, () => 'done'))
+      .toBe('done')
+
+    const [snapshot] = diagnostics.snapshot().recentSyncOperations
+    expect(snapshot?.elapsedMs).toBe(30)
+    expect(snapshot?.ioWaitMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it('records the elapsed time of a rejected async handler and rethrows', async () => {
+    const clock = createClock([0, 90])
+    const diagnostics = createOperationDiagnostics({ now: clock.now })
+
+    await expect(diagnostics.trackInvocation({ operationModule: 'gateway:rpc', operation: 'handler.invoke' }, async () => {
+      throw new Error('boom')
+    })).rejects.toThrow('boom')
+
+    expect(diagnostics.snapshot().recentSyncOperations[0]?.elapsedMs).toBe(90)
+  })
 })
 
 function createClock(values: number[]): { now(): number } {
