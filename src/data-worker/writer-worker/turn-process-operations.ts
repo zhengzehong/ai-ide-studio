@@ -244,7 +244,16 @@ function aggregateFileChanges(db: SqliteDatabase, messageId: string): string | n
         existing.deletedLines += file.deletedLines
         existing.changeType = mergeChangeType(existing.changeType, file.changeType)
       } else {
-        files.set(file.path, { ...file })
+        // 只取摘要字段:detail_json 的文件项还带 segments(diff 正文,可达数 MB),
+        // `{...file}` 会把它们整包写进 messages.file_changes_json —— 而列表读取
+        // (lightweightMessage / parseFileChangesJson)只认 path/changeType/±行数,
+        // 生产实测这一处曾经把 156MB 死数据写进 messages 表(2026-09 修复)。
+        files.set(file.path, {
+          path: file.path,
+          changeType: file.changeType,
+          addedLines: file.addedLines,
+          deletedLines: file.deletedLines,
+        })
       }
     }
   }
