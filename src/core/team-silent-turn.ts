@@ -71,7 +71,6 @@ function handleSilentTurn(ev: AppEvents['session:committed_done']): void {
   // P0-B：原先的 pendingTasks 硬门槛已移除 —— 任务没指派（Leader 建任务漏传 assigneeMemberId）时
   // pendingTasks=0 会让兜底连成员回复原文都不取就 return，正是 2026-09-17 glm53 汇报丢失的直接死点。
   // pendingTasks 现在只作 prompt 富化字段（Task 行），不参与"兜不兜"的判定。
-  // TODO(双审遗留 · 本批不做)：任务 update 的"先删后插"间隙 —— 按评审裁定留待后续批次处理。
   const pendingTasks = taskStore
     .listByTeam(team.id)
     .filter((task) => task.assignee_member_id === member.id && !TERMINAL_TASK_STATUSES.has(task.status))
