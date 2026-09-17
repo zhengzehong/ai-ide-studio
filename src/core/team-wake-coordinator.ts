@@ -244,14 +244,27 @@ function buildWakeTriggerSnapshot(input: {
   const taskLines = input.task
     ? [`任务：${input.task.title} (${input.task.id}) · 状态 ${input.task.status}${input.task.stage ? ` · 阶段 ${input.task.stage}` : ''}`]
     : []
-  const related = input.task
-    ? teamMailboxStore.listByTask(input.task.id, 3, snapshotLineFilter(input.team.id, input.message, input.task))
-    : (input.message ? [input.message] : [])
+  const related = collectSnapshotMailbox(input)
   return { taskLines, mailboxLines: related.map((message) => formatWakeMailboxLine(message, now)) }
 }
 
-/** 快照要取的线：邮件触发的唤醒取该邮件所在线（遗留 NULL 行按默认线，与读取口径一致）；
- *  任务触发的唤醒取任务所在线（无来源会话的历史任务同样按默认线）。无线可归 → undefined（不追加邮件摘要）。 */
+/**
+ * 快照要列的邮件：**只取触发唤醒那条线**的邮件。
+ * 无线可归（团队没有任何活跃线）→ 空数组且**不查库**：`listByTask` 的 `line === undefined` 语义是
+ * "不过滤"，直通把 undefined 传下去会 fail-open（跨线邮件同进一条唤醒 prompt，正是 F2 要消灭的形态，
+ * 二审 ①d/探针 B）。邮件路径不查库（触发邮件本身已在 prompt 正文里）。
+ */
+function collectSnapshotMailbox(input: { team: TeamRow; message?: TeamMailboxRow; task?: TaskRow }): TeamMailboxRow[] {
+  if (!input.task) return input.message ? [input.message] : []
+  const scope = snapshotLineFilter(input.team.id, input.message, input.task)
+  return scope ? teamMailboxStore.listByTask(input.task.id, 3, scope) : []
+}
+
+/**
+ * 快照要取的线：邮件触发的唤醒取该邮件所在线（遗留 NULL 行按默认线，与读取口径一致）；
+ * 任务触发的唤醒取任务所在线（无来源会话的历史任务同样按默认线）。
+ * **无线可归 → 返回 undefined，调用方必须据此跳过查询**（undefined 传给 `listByTask` 会被当成"不过滤"）。
+ */
 function snapshotLineFilter(teamId: string, message?: TeamMailboxRow, task?: TaskRow): MailboxLineFilter | undefined {
   const defaultConversationId = defaultLine(teamId)?.id ?? null
   const conversationId = (message ? message.conversation_id ?? defaultConversationId : undefined)

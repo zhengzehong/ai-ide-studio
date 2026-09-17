@@ -311,6 +311,73 @@ describe('唤醒：同窗拼接（消灭"被 2s 任务唤醒吞掉"）', () => {
     expect(secondPrompt).toContain(`任务：两线共用的活 (${task.id}) · 状态 draft`)
   })
 
+  test('唤醒快照按线（F2·任务触发路径）：任务唤醒只含任务所在线的汇报', async () => {
+    vi.useFakeTimers()
+    const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue()
+    vi.spyOn(sessionManager, 'isPromptActive').mockReturnValue(false)
+    const f = createFixture()
+    const { first, second } = createTwoLines(f)
+    const task = teamService.createTask({
+      teamId: f.teamId, title: '任务触发快照', assigneeMemberId: f.memberId, sourceSessionId: first.masterSessionId,
+    })
+    teamService.sendMailbox({
+      teamId: f.teamId, type: 'report', content: '一线汇报·任务触发', fromMemberId: f.memberId,
+      taskId: task.id, sourceSessionId: first.memberSessionId,
+    })
+    teamService.sendMailbox({
+      teamId: f.teamId, type: 'report', content: '二线汇报·任务触发', fromMemberId: f.memberId,
+      taskId: task.id, sourceSessionId: second.memberSessionId,
+    })
+    // 任务到 completed 触发任务唤醒（2s），早于两封邮件各自的 15s 窗口 → 只投任务所在线（一线）
+    teamService.updateTask({ teamId: f.teamId, taskId: task.id, status: 'completed', actor: { teamMemberId: f.memberId } })
+    vi.advanceTimersByTime(2_100)
+
+    expect(enqueue).toHaveBeenCalledTimes(1)
+    expect(enqueue.mock.calls[0][0]).toBe(first.masterSessionId)
+    const prompt = String(enqueue.mock.calls[0][1])
+    // 任务唤醒的触发快照是最后一段（前一段是同时入桶的一线邮件唤醒）
+    const snapshot = prompt.slice(prompt.lastIndexOf('触发内容快照'))
+    expect(snapshot).toContain(`任务：任务触发快照 (${task.id}) · 状态 completed`)
+    expect(snapshot).toContain('一线汇报·任务触发')
+    expect(snapshot).not.toContain('二线汇报·任务触发')
+  })
+
+  test('唤醒快照 fail-closed（F2 复审 ①d）：零活跃线时任务唤醒不追加任何邮件摘要', async () => {
+    vi.useFakeTimers()
+    const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue()
+    vi.spyOn(sessionManager, 'isPromptActive').mockReturnValue(false)
+    const f = createFixture()
+    const { first, second } = createTwoLines(f)
+    const task = teamService.createTask({
+      teamId: f.teamId, title: '归档后的活', assigneeMemberId: f.memberId, sourceSessionId: first.masterSessionId,
+    })
+    teamService.sendMailbox({
+      teamId: f.teamId, type: 'report', content: 'A-一线汇报', fromMemberId: f.memberId,
+      taskId: task.id, sourceSessionId: first.memberSessionId,
+    })
+    teamService.sendMailbox({
+      teamId: f.teamId, type: 'report', content: 'B-二线汇报', fromMemberId: f.memberId,
+      taskId: task.id, sourceSessionId: second.memberSessionId,
+    })
+    // 两条线全部归档 → 零活跃线（二审探针 B 场景：线不可归时摘要必须给空，不能退回"不过滤"）
+    teamService.archiveConversation(first.conversationId)
+    teamService.archiveConversation(second.conversationId)
+
+    teamService.updateTask({ teamId: f.teamId, taskId: task.id, status: 'completed', actor: { teamMemberId: f.memberId } })
+    vi.advanceTimersByTime(2_100)
+
+    expect(enqueue).toHaveBeenCalledTimes(1)
+    expect(enqueue.mock.calls[0][0]).toBe(f.leaderSessionId) // 无线可归 → member-bound 兜底
+    const prompt = String(enqueue.mock.calls[0][1])
+    // 注意：一线 master = Leader primary（首线复用语义），所以一线那封邮件自己的唤醒也落在同一个桶里——
+    // 此处只钉"任务唤醒的触发快照"（最后一段）不得追加任何邮件摘要（fail-closed 的正是这段）。
+    const snapshot = prompt.slice(prompt.lastIndexOf('触发内容快照'))
+    expect(snapshot).toContain(`任务：归档后的活 (${task.id}) · 状态 completed`)
+    expect(snapshot).not.toContain('A-一线汇报')
+    expect(snapshot).not.toContain('B-二线汇报')
+    expect(snapshot).not.toContain('- tmail-')
+  })
+
   test('唤醒落线：二线的邮件只唤醒二线 Master，不惊动一线', async () => {
     vi.useFakeTimers()
     const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue()

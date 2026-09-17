@@ -133,6 +133,7 @@
 | F2 单测 | 工单必补 | `tests/unit/team-line-scope.test.ts`「唤醒快照按线（F2）」：同一 taskId 两线各一封 report，两线各自唤醒 → 各线快照只含本线邮件摘要 + 任务状态行两线都在；并附**反证**（不带线过滤时两封都在），证明"只含本线"来自线过滤而非数据缺失 |
 | F6① 表述如实化 | 二审 | §5.2 改为"写入侧唯一生产调用方是 agent 工具，RPC 无 mailbox 写入路径"（`grep -rn mailbox src/gateway/rpc/*.ts` 为空，已核） |
 | F6③ prompt 模板提示 | 二审（合并时改 prd 侧） | 合并时在 `buildTeamMemberPrompt` 的协作规则补一句"显式 type=report/result 缺 taskId 会被系统拒收"（与工具层拒收口径一致，减少成员往返） |
+| ①d fail-closed（**二审 F2 增量阻塞项**） | 二审 F2 delta（探针 B） | `snapshotLineFilter` 的 `undefined` 落到 `listByTask` 语义是"不过滤"→ 零活跃线时会追加**跨线全量**邮件摘要（fail-open，且与注释相反）。修法：新增 `collectSnapshotMailbox` 在调用处**短路**——scope 为空即返回 `[]` 且不查库；`snapshotLineFilter` 注释改为"调用方必须据此跳过查询"。补 2 条单测：**任务触发路径**同 taskId 两线各一封 report → 任务唤醒快照只含任务所在线汇报；**零活跃线**（两线全归档，探针 B 场景）→ 任务唤醒快照**不含任何**邮件摘要（且任务状态行仍在）。已用变异验证（把短路改回 `scope ?? undefined` → 新用例立刻红） |
 | P2-1 description 三合一 | 一审 | 本分支已写入 `team.mailbox.send` 描述（线隔离语义 + 必带 taskId + toMemberId 指引），`src/tools/team-seed.ts` 同步；合并时以该合并版为准 |
 
 ## 8. 合并 checklist（合并 prd 时逐条执行，结果写进合并后汇报）

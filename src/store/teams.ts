@@ -366,7 +366,6 @@ export const teamMailboxStore = {
     `).get({ ...(line ?? {}), teamId, memberId }) ?? null
   },
 
-  /** 某任务最近的 N 条 mailbox（唤醒 prompt 末尾的"相关邮件摘要"用），时间升序返回。 */
   /**
    * 某任务最近的 N 条 mailbox（唤醒 prompt 末尾的"相关邮件摘要"用），时间升序返回。
    * 传 line 时为**线内口径**：同一 taskId 被多条线引用时，快照只取本线邮件（v3 复审 F2）；
