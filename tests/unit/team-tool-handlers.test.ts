@@ -397,11 +397,12 @@ describe('team MCP tool handlers', () => {
     const agent = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
     const team = await createTeamFixture({ name: 'Alpha' }, { projectId: project.id, agentId: agent.id })
     const memberId = asRecord(team.member).id as string
+    const task = teamService.createTask({ teamId: asRecord(team.team).id as string, title: 'Report target' })
     const sendPrompt = vi.spyOn(sessionManager, 'sendPrompt')
 
     const sent = await executeJson(
       'team.mailbox.send',
-      { type: 'report', content: 'done' },
+      { type: 'report', content: 'done', taskId: task.id },
       {
         projectId: project.id,
         teamId: asRecord(team.team).id as string,
@@ -528,6 +529,15 @@ describe('team MCP tool handlers', () => {
         agentId: worker.id,
         name: 'Worker',
       })
+      // v3：report 必须绑 taskId（未绑任务的汇报会被工具层拒收）——任务绑定的唤醒走 15s 合并窗口。
+      const task = taskStore.create({
+        title: 'Wake target',
+        source: 'agent',
+        projectId: project.id,
+        teamId: asRecord(team.team).id as string,
+        assigneeMemberId: asRecord(spawned.member).id as string,
+        assignAgentId: worker.id,
+      })
       const sendPrompt = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
 
       await executeJson(
@@ -535,6 +545,7 @@ describe('team MCP tool handlers', () => {
         {
           type: 'report',
           content: 'finished the work',
+          taskId: task.id,
         },
         {
           projectId: project.id,
@@ -543,7 +554,7 @@ describe('team MCP tool handlers', () => {
           agentId: worker.id,
         },
       )
-      await vi.advanceTimersByTimeAsync(2_100)
+      await vi.advanceTimersByTimeAsync(15_100)
 
       expect(sendPrompt).toHaveBeenCalledWith(asRecord(team.member).session_id, expect.stringContaining('Team'), undefined, wakeIdentity)
       expect(sendPrompt).toHaveBeenCalledWith(
@@ -636,6 +647,14 @@ describe('team MCP tool handlers', () => {
         agentId: worker.id,
         name: 'Worker',
       })
+      const task = taskStore.create({
+        title: 'Queued report target',
+        source: 'agent',
+        projectId: project.id,
+        teamId: asRecord(team.team).id as string,
+        assigneeMemberId: asRecord(spawned.member).id as string,
+        assignAgentId: worker.id,
+      })
       const sendPrompt = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
       const isActive = vi.spyOn(sessionManager, 'isPromptActive').mockReturnValue(true)
 
@@ -644,6 +663,7 @@ describe('team MCP tool handlers', () => {
         {
           type: 'report',
           content: 'queued report',
+          taskId: task.id,
         },
         {
           projectId: project.id,
@@ -665,7 +685,8 @@ describe('team MCP tool handlers', () => {
         sessionId: asRecord(team.member).session_id as string,
         agentId: leader.id, state: 'idle', reason: 'prompt-done', timestamp: new Date().toISOString(),
       })
-      await vi.advanceTimersByTimeAsync(2_100)
+      // 任务绑定的唤醒窗口是 15s：越过窗口后必须照常投递（排队语义与 line 隔离改造前一致）。
+      await vi.advanceTimersByTimeAsync(15_100)
 
       expect(sendPrompt).toHaveBeenCalledTimes(1)
       expect(sendPrompt).toHaveBeenLastCalledWith(

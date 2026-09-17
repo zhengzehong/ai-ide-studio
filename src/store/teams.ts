@@ -43,6 +43,8 @@ export interface TeamMailboxRow {
   content: string
   payload_json: string | null
   created_at: string
+  /** 会话线归属（migration 075）；NULL = 迁移前的遗留行，读取时按"归属缺省"只在团队默认线可见。 */
+  conversation_id: string | null
 }
 
 export interface TeamEventRow {
@@ -97,6 +99,14 @@ export interface CreateTeamMailboxInput {
   type: string
   content: string
   payload?: unknown
+  /** 会话线归属：由 core/team-line-scope.ts 四级兜底解析后传入；只有迁移前的遗留数据/测试直写为 NULL。 */
+  conversationId?: string
+}
+
+/** 线内可见范围：目标线 + 团队默认线（遗留 NULL 行的归属线）。 */
+export interface MailboxLineFilter {
+  conversationId: string
+  defaultConversationId: string | null
 }
 
 export interface AppendTeamEventInput {
@@ -308,36 +318,62 @@ export const teamMailboxStore = {
       content: input.content,
       payload_json: input.payload === undefined ? null : JSON.stringify(input.payload),
       created_at: new Date().toISOString(),
+      conversation_id: input.conversationId ?? null,
     }
     getDb().prepare(`
       INSERT INTO team_mailbox (
-        id, team_id, project_id, from_member_id, to_member_id, task_id, type, content, payload_json, created_at
+        id, team_id, project_id, from_member_id, to_member_id, task_id, type, content, payload_json, created_at, conversation_id
       )
       VALUES (
-        @id, @team_id, @project_id, @from_member_id, @to_member_id, @task_id, @type, @content, @payload_json, @created_at
+        @id, @team_id, @project_id, @from_member_id, @to_member_id, @task_id, @type, @content, @payload_json, @created_at, @conversation_id
       )
     `).run(msg)
     teamEventStore.append(input.teamId, { type: 'mailbox.created', payload: { message: msg } })
     return msg
   },
 
+  /** 全量（人的视野：UI 团队面板）。agent 工具视图必须走 listForLine。 */
   list(teamId: string, limit = 50): TeamMailboxRow[] {
     return getDb().prepare<{ teamId: string; limit: number }, TeamMailboxRow>(`
       SELECT * FROM team_mailbox
       WHERE team_id = @teamId
-      ORDER BY created_at DESC
+      ORDER BY created_at DESC, rowid DESC
       LIMIT @limit
     `).all({ teamId, limit }).reverse()
   },
 
-  /** 该成员最后一条"唤醒级"mailbox（口径见 isWakeEligibleMailbox）；没有则 null。 */
-  latestFromMember(teamId: string, memberId: string): TeamMailboxRow | null {
-    return getDb().prepare<{ teamId: string; memberId: string }, TeamMailboxRow>(`
+  /** 单线视图（agent 的工具视野）：本线邮件 + 归属缺省行（仅在查询默认线时可见）。 */
+  listForLine(teamId: string, line: MailboxLineFilter, limit = 50): TeamMailboxRow[] {
+    return getDb().prepare<MailboxLineFilter & { teamId: string; limit: number }, TeamMailboxRow>(`
       SELECT * FROM team_mailbox
-      WHERE team_id = @teamId AND from_member_id = @memberId AND ${WAKE_ELIGIBLE_MAILBOX_SQL}
+      WHERE team_id = @teamId AND ${MAILBOX_LINE_SCOPE_SQL}
+      ORDER BY created_at DESC, rowid DESC
+      LIMIT @limit
+    `).all({ ...line, teamId, limit }).reverse()
+  },
+
+  /**
+   * 该成员最后一条"唤醒级"mailbox（口径见 isWakeEligibleMailbox）；没有则 null。
+   * 传 line 时为线内口径（agent 的 team.status）：他线的汇报不参与本线"最后汇报"判定。
+   */
+  latestFromMember(teamId: string, memberId: string, line?: MailboxLineFilter): TeamMailboxRow | null {
+    const scope = line ? ` AND ${MAILBOX_LINE_SCOPE_SQL}` : ''
+    return getDb().prepare<{ teamId: string; memberId: string } & Partial<MailboxLineFilter>, TeamMailboxRow>(`
+      SELECT * FROM team_mailbox
+      WHERE team_id = @teamId AND from_member_id = @memberId AND ${WAKE_ELIGIBLE_MAILBOX_SQL}${scope}
       ORDER BY created_at DESC, rowid DESC
       LIMIT 1
-    `).get({ teamId, memberId }) ?? null
+    `).get({ ...(line ?? {}), teamId, memberId }) ?? null
+  },
+
+  /** 某任务最近的 N 条 mailbox（唤醒 prompt 末尾的"相关邮件摘要"用），时间升序返回。 */
+  listByTask(taskId: string, limit = 3): TeamMailboxRow[] {
+    return getDb().prepare<{ taskId: string; limit: number }, TeamMailboxRow>(`
+      SELECT * FROM team_mailbox
+      WHERE task_id = @taskId
+      ORDER BY created_at DESC, rowid DESC
+      LIMIT @limit
+    `).all({ taskId, limit }).reverse()
   },
 
   /** 该成员在时间窗内写过的全部 mailbox（静默回合判定"本回合有没有汇报"用，时间窗起点 = 回合 human 消息时间戳）。 */
@@ -349,6 +385,12 @@ export const teamMailboxStore = {
     `).all({ teamId, memberId, since: sinceIso })
   },
 }
+
+/**
+ * 线内可见口径（命名参数 @conversationId / @defaultConversationId 由调用方提供）：
+ * 本线邮件 + 归属缺省（遗留 NULL 行）仅当查询的正是默认线——同一条 tmail 不可能同时出现在两条线。
+ */
+export const MAILBOX_LINE_SCOPE_SQL = '(conversation_id = @conversationId OR (conversation_id IS NULL AND @conversationId = @defaultConversationId))'
 
 /** 唤醒级 mailbox 口径（与 team-wake-coordinator 的唤醒白名单一致，改一处必须改两处会被等价性测试拦住）。 */
 export const WAKE_ELIGIBLE_MAILBOX_SQL = `(type IN ('report', 'result', 'question', 'blocked') OR (type = 'message' AND task_id IS NOT NULL))`

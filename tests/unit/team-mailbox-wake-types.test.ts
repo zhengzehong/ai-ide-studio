@@ -7,6 +7,7 @@ import { agentStore } from '../../src/store/agents.js'
 import { projectStore } from '../../src/store/projects.js'
 import { sessionStore } from '../../src/store/sessions.js'
 import { teamMailboxStore, isWakeEligibleMailbox, WAKE_ELIGIBLE_MAILBOX_SQL } from '../../src/store/teams.js'
+import { teamConversationStore } from '../../src/store/team-conversations.js'
 import { teamService } from '../../src/core/teams.js'
 import { sessionManager } from '../../src/core/sessions.js'
 import { sendTeamMailboxHandler } from '../../src/tools/handlers/team/team-tools.js'
@@ -151,7 +152,7 @@ describe('wake-eligible mailbox predicate (JS) 与 SQL 口径一致', () => {
 describe('team.mailbox.send default type', () => {
   test('defaults to report when taskId is present and message otherwise', async () => {
     const fixture = createTeamFixture()
-    const context = { sessionId: fixture.memberSession.id }
+    const context = { sessionId: fixture.memberSessionId }
 
     await sendTeamMailboxHandler.execute(
       { teamId: fixture.team.id, content: '完成汇报', taskId: fixture.task.id },
@@ -180,6 +181,17 @@ function createTeamFixture() {
     name: 'Alpha',
   })
   const spawn = teamService.spawnMember({ teamId: created.team.id, agentId: worker.id, name: 'Worker' })
+  // v3 会话线硬隔离：mailbox 写入强制归属到活跃线，无线团队会被拒收——夹具照线上形态开一条首线。
+  const conversation = teamService.createConversation(created.team.id, '首线')
+  const memberSessionId = teamConversationStore.listMembers(conversation.conversation.id)
+    .find((row) => row.member_id === spawn.member.id)!.session_id as string
   const task = teamService.createTask({ teamId: created.team.id, title: '实现一个小功能', assigneeMemberId: spawn.member.id })
-  return { team: created.team, member: spawn.member, memberSession: spawn.session, task, leaderSessionId: created.session.id }
+  return {
+    team: created.team,
+    member: spawn.member,
+    memberSessionId,
+    conversationId: conversation.conversation.id,
+    task,
+    leaderSessionId: created.session.id,
+  }
 }

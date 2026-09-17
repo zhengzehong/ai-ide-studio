@@ -27,12 +27,12 @@ export const TEAM_BUILTIN_TOOLS: BuiltinToolSeed[] = [
     type: 'object',
     properties: { projectId: { type: 'string', description: '项目 ID；不传时使用当前会话项目' } },
   }),
-  teamTool('team.get', '获取 Team', '获取 Team 详情、成员、任务和最近 mailbox。', {
+  teamTool('team.get', '获取 Team', '获取 Team 详情、本线成员、本线任务和本线最近 mailbox（按会话线硬隔离，只看当前会话线）', {
     type: 'object',
     properties: { teamId: { type: 'string', description: 'Team ID' } },
     required: ['teamId'],
   }),
-  teamTool('team.status', '查看成员运行态', '一次查看团队成员运行态与汇报态（只读快照）：各线格子 running/idle、派发排队深度、是否在飞、最后一条给 Leader 的汇报时间与类型、名下任务统计。适用于用户询问进度、被唤醒后跟进、总结前核对。这是查询快照，不是订阅：系统会在成员汇报时自动唤醒你，不要轮询本工具。', {
+  teamTool('team.status', '查看成员运行态', '一次查看本会话线成员的运行态与汇报态（只读快照）：本线格子 running/idle、派发排队深度、是否在飞、最后一条给 Leader 的汇报时间与类型、名下本线任务统计。适用于用户询问进度、被唤醒后跟进、总结前核对。按会话线硬隔离（不含他线成员与他线活动）；这是查询快照，不是订阅：系统会在成员汇报时自动唤醒你，不要轮询本工具。', {
     type: 'object',
     properties: { teamId: { type: 'string', description: 'Team ID；不传时使用上下文 Team' } },
   }),
@@ -86,14 +86,14 @@ export const TEAM_BUILTIN_TOOLS: BuiltinToolSeed[] = [
     },
     required: ['memberId', 'content'],
   }),
-  teamTool('team.mailbox.list', '列出 Team 留言', '查看团队留言、问题、结果和汇报。', {
+  teamTool('team.mailbox.list', '列出 Team 留言', '查看本会话线的团队留言、问题、结果和汇报（按会话线硬隔离，不含他线，无全局开关）', {
     type: 'object',
     properties: {
       teamId: { type: 'string', description: 'Team ID；不传时使用上下文 Team' },
       limit: { type: 'number', description: '返回数量' },
     },
   }),
-  teamTool('team.mailbox.send', '发送 Team 留言', '写入团队留言、问题、结果或汇报，不触发 Agent 执行。', {
+  teamTool('team.mailbox.send', '发送 Team 留言', '写入本会话线的团队留言、问题、结果或汇报，不触发 Agent 执行；type=report/result 必须带 taskId', {
     type: 'object',
     properties: {
       teamId: { type: 'string', description: 'Team ID；不传时使用上下文 Team' },
@@ -106,7 +106,7 @@ export const TEAM_BUILTIN_TOOLS: BuiltinToolSeed[] = [
     },
     required: ['content'],
   }),
-  teamTool('team.task.list', '列出 Team 任务', '查看 Team 关联任务。', {
+  teamTool('team.task.list', '列出 Team 任务', '查看本会话线的 Team 关联任务（按会话线硬隔离，不含他线任务）', {
     type: 'object',
     properties: {
       teamId: { type: 'string', description: 'Team ID；不传时使用上下文 Team' },

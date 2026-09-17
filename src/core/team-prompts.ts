@@ -60,12 +60,19 @@ export function buildTeamMemberPrompt(input: {
     .join('\n')
 }
 
+/** 唤醒 prompt 末尾的"触发内容快照"：任务状态行 + 相关邮件摘要行（由 team-wake-coordinator 格式化）。 */
+export interface WakeTriggerSnapshot {
+  taskLines?: string[]
+  mailboxLines?: string[]
+}
+
 export function buildLeaderWakePrompt(input: {
   team: TeamRow
   member: TeamMemberRow
   message?: TeamMailboxRow
   task?: TaskRow
   dispatchError?: string
+  trigger?: WakeTriggerSnapshot
 }): string {
   const lines = [
     input.dispatchError ? '系统通知：Team 成员派发失败，需要你处理。' : '系统通知：Team 成员有新的异步进展。',
@@ -93,7 +100,18 @@ export function buildLeaderWakePrompt(input: {
     '不要使用 sleep、等待命令或轮询；如果还需要其他成员结果，请结束本轮，系统会在新进展到达时再次唤醒你。',
   )
 
-  return buildTeamLeaderWakePrompt(lines.join('\n'))
+  return withWakeTriggerSnapshot(buildTeamLeaderWakePrompt(lines.join('\n')), input.trigger)
+}
+
+/**
+ * 触发内容快照追加在**整条唤醒 prompt 的末尾**（含固定话术之后）：
+ * 多封唤醒在同一合并窗口里被拼接时，Master 仍能从尾段直接看到"这一轮为什么被叫醒"。
+ * 原话术一字不改，快照只追加。
+ */
+function withWakeTriggerSnapshot(prompt: string, snapshot?: WakeTriggerSnapshot): string {
+  const parts = [...(snapshot?.taskLines ?? []), ...(snapshot?.mailboxLines ?? [])]
+  if (parts.length === 0) return prompt
+  return [prompt, '', '---', '触发内容快照（系统自动附加）：', ...parts].join('\n')
 }
 
 export function buildTeamLeaderWakePrompt(content: string): string {

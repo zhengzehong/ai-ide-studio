@@ -7,7 +7,9 @@ import { agentStore } from '../../src/store/agents.js'
 import { projectStore } from '../../src/store/projects.js'
 import { sessionStore } from '../../src/store/sessions.js'
 import { teamService } from '../../src/core/teams.js'
+import { teamWakeCoordinator } from '../../src/core/team-wake-coordinator.js'
 import { teamConversationStore } from '../../src/store/team-conversations.js'
+import { teamMailboxStore } from '../../src/store/teams.js'
 import { sessionManager } from '../../src/core/sessions.js'
 import { teamSessionGridRepairMigration } from '../../src/store/migrations/068-team-session-grid-repair.js'
 
@@ -113,12 +115,29 @@ describe('team session grid (线 × 成员) model', () => {
     expect(enqueue.mock.calls[0]?.[0]).toBe(conversation.conversation.master_session_id)
   })
 
-  test('falls back to leader member-bound session when no conversation exists', async () => {
+  test('no active conversation rejects the mailbox write (v3 line isolation: no unattributed mail)', () => {
+    const f = createFixture()
+    const spawned = teamService.spawnMember({ teamId: f.team.id, agentId: f.worker.id })
+    expect(() => teamService.sendMailbox({
+      teamId: f.team.id, type: 'result', content: 'done', fromMemberId: spawned.member.id,
+    })).toThrow('没有任何活跃会话线')
+    expect(teamMailboxStore.list(f.team.id)).toHaveLength(0)
+  })
+
+  test('legacy line-less mail (pre-075 NULL row) still recovers onto the member-bound leader session', async () => {
     const f = createFixture()
     const spawned = teamService.spawnMember({ teamId: f.team.id, agentId: f.worker.id })
     const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue()
     vi.useFakeTimers()
-    teamService.sendMailbox({ teamId: f.team.id, type: 'result', content: 'done', fromMemberId: spawned.member.id })
+    // 迁移 075 之前的存量行（conversation_id=NULL）无法重归属：重启对账仍按解析链落到 level 4。
+    const legacy = teamMailboxStore.create({
+      teamId: f.team.id,
+      projectId: f.project.id,
+      fromMemberId: spawned.member.id,
+      type: 'report',
+      content: '迁移前的存量汇报',
+    })
+    expect(teamWakeCoordinator.recoverPendingWake(legacy)).toBe(true)
     await vi.advanceTimersByTimeAsync(2100)
     expect(enqueue.mock.calls[0]?.[0]).toBe(f.leaderSession.id)
   })
