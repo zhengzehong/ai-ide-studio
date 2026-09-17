@@ -5,6 +5,8 @@ import type { QueryPriority } from '../data-worker/protocol.js'
 export interface QueryRequestOptions {
   priority?: QueryPriority
   deadlineMs?: number
+  /** 客户端等待上限。不传用默认 10s;worker-rpc-client 仍会取 min(该值, deadlineMs) 兜底。 */
+  timeoutMs?: number
 }
 
 export interface QueryPage<T> {

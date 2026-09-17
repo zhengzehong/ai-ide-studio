@@ -1,4 +1,11 @@
-export type QueryPriority = 'interactive' | 'background'
+/**
+ * 查询优先级(2026-09-16 卡顿 P0-3)。
+ * - interactive:轻交互查询,必须快(tasks、sessions.list、widget、sessions.messages/events)
+ * - heavy:重查询,耗时可达 10s+(sessions.recovery),排在轻查询之后,避免挡住别人
+ * - background:诊断类
+ * 注意:优先级只决定**出队顺序**,不能抢占正在执行的查询(better-sqlite3 同步不可中断)。
+ */
+export type QueryPriority = 'interactive' | 'heavy' | 'background'
 export type WritePriority = 'critical' | 'interactive' | 'background'
 export type WorkerPriority = QueryPriority | WritePriority
 

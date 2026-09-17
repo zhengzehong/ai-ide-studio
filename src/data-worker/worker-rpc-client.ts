@@ -263,10 +263,16 @@ export class WorkerRpcClient {
       timedOutAfterMs: Math.max(0, timedOut.timedOutAt - timedOut.enqueuedAt),
       ...(message.kind === 'error' ? { workerErrorCode: message.error.code } : {}),
     }
-    log.warn(response, 'late data worker response received after client timeout')
+    // worker 按 deadline 主动跳过过期请求时回的 DEADLINE_EXCEEDED 属于"预期内的兜底",
+    // 降为 debug 避免刷屏;其余迟到响应(真的异常/超时)保持 warn。
+    const skippedByDeadline = message.kind === 'error' && message.error.code === 'DEADLINE_EXCEEDED'
+    if (skippedByDeadline) {
+      log.debug(response, 'query worker skipped a request whose deadline had passed')
+    } else {
+      log.warn(response, 'late data worker response received after client timeout')
+    }
     this.onLateResponse?.(response)
   }
-
   private pruneTimedOut(now: number): void {
     for (const [requestId, request] of this.timedOut) {
       if (now - request.timedOutAt <= LATE_RESPONSE_TTL_MS) break

@@ -3,10 +3,18 @@ import { createDatabaseQueryPort } from '../../queries/database-query-port.js'
 import { getDatabaseMode, getDb } from '../../store/db.js'
 import { InvalidTaskCursorError } from '../../store/task-page.js'
 
+/** worker 侧运行期计数(P0-3):deadline 跳过是否真的在发生、发生了多少。 */
+export interface QueryWorkerStats {
+  executedRequests: number
+  skippedExpiredRequests: number
+}
+
 export interface QueryWorkerInspection {
   mode: 'readonly' | 'readwrite' | null
   queryOnly: boolean
   threadId: number
+  executedRequests: number
+  skippedExpiredRequests: number
 }
 
 export interface QueryWorkerDiagnosticInput {
@@ -21,6 +29,7 @@ export interface QueryWorkerDiagnosticResult extends QueryWorkerInspection {
 
 export interface QueryWorkerOperationOptions {
   allowDiagnostics: boolean
+  stats?: QueryWorkerStats
 }
 
 export async function executeQueryOperation(
@@ -52,10 +61,10 @@ export async function executeQueryOperation(
     case 'widget.sessions.list':
       return queryPort.listWidgetSessions(asObject(payload))
     case 'worker.inspect':
-      return inspectQueryWorker()
+      return inspectQueryWorker(options.stats)
     case 'worker.diagnose':
       if (!options.allowDiagnostics) throw new QueryOperationError('BAD_REQUEST', 'Diagnostics are disabled')
-      return diagnoseQueryWorker(payload)
+      return diagnoseQueryWorker(payload, options.stats)
     default:
       throw new QueryOperationError('BAD_REQUEST', `Unknown query operation: ${operation}`)
   }
@@ -71,16 +80,18 @@ export class QueryOperationError extends Error {
   }
 }
 
-function inspectQueryWorker(): QueryWorkerInspection {
+function inspectQueryWorker(stats?: QueryWorkerStats): QueryWorkerInspection {
   const queryOnly = getDb().pragma('query_only', { simple: true })
   return {
     mode: getDatabaseMode(),
     queryOnly: queryOnly === 1,
     threadId,
+    executedRequests: stats?.executedRequests ?? 0,
+    skippedExpiredRequests: stats?.skippedExpiredRequests ?? 0,
   }
 }
 
-function diagnoseQueryWorker(payload: unknown): QueryWorkerDiagnosticResult {
+function diagnoseQueryWorker(payload: unknown, stats?: QueryWorkerStats): QueryWorkerDiagnosticResult {
   const input = asObject(payload) as QueryWorkerDiagnosticInput
   if (input.blockMs != null) blockFor(input.blockMs)
   if (input.attemptWrite) {
@@ -90,7 +101,7 @@ function diagnoseQueryWorker(payload: unknown): QueryWorkerDiagnosticResult {
       throw new QueryOperationError('SQLITE_ERROR', errorMessage(error))
     }
   }
-  return { ...inspectQueryWorker(), label: input.label }
+  return { ...inspectQueryWorker(stats), label: input.label }
 }
 
 function asObject(value: unknown): Record<string, unknown> {

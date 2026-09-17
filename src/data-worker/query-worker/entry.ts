@@ -8,7 +8,7 @@ import type {
   WorkerRequest,
   WorkerResponse,
 } from '../protocol.js'
-import { executeQueryOperation, QueryOperationError } from './operations.js'
+import { executeQueryOperation, QueryOperationError, type QueryWorkerStats } from './operations.js'
 
 interface QueryWorkerData {
   dbPath: string
@@ -17,7 +17,8 @@ interface QueryWorkerData {
 
 const port = requireParentPort(parentPort)
 const config = parseWorkerData(workerData)
-const queue = new StablePriorityQueue<WorkerRequest, QueryPriority>(['interactive', 'background'])
+const queue = new StablePriorityQueue<WorkerRequest, QueryPriority>(['interactive', 'heavy', 'background'])
+const stats: QueryWorkerStats = { executedRequests: 0, skippedExpiredRequests: 0 }
 let scheduled = false
 let processing = false
 
@@ -52,6 +53,7 @@ async function processNext(): Promise<void> {
   const request = queued.value
   const startedAt = performance.now()
   if (queued.expired) {
+    stats.skippedExpiredRequests += 1
     port.postMessage(errorResponse(
       request,
       'DEADLINE_EXCEEDED',
@@ -60,9 +62,11 @@ async function processNext(): Promise<void> {
       0,
     ))
   } else {
+    stats.executedRequests += 1
     try {
       const result = await executeQueryOperation(request.operation, request.payload, {
         allowDiagnostics: config.allowDiagnostics === true,
+        stats,
       })
       const executionMs = performance.now() - startedAt
       const response: WorkerResponse = {
@@ -119,7 +123,11 @@ function isQueryRequest(value: unknown): value is WorkerRequest & { priority: Qu
   return request.kind === 'request'
     && typeof request.requestId === 'string'
     && typeof request.operation === 'string'
-    && (request.priority === 'interactive' || request.priority === 'background')
+    && isQueryPriority(request.priority)
+}
+
+function isQueryPriority(value: unknown): value is QueryPriority {
+  return value === 'interactive' || value === 'heavy' || value === 'background'
 }
 
 function parseWorkerData(value: unknown): QueryWorkerData {
