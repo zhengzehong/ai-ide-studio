@@ -55,6 +55,7 @@ export function UpdatesConversation({ target, onOpenPreview, onOpenFiles }: Upda
     processItemErrorByKey: workbenchState.processItemErrorByKey,
     sendPrompt: workbenchState.sendPrompt,
     cancel: workbenchState.cancel,
+    forceFinish: workbenchState.forceFinish,
     loadOlderMessages: workbenchState.loadOlderMessages,
     reload: selectedSessionId ? reloadSession : undefined,
     loadMessageProcess: workbenchState.loadMessageProcess,

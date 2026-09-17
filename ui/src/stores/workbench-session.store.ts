@@ -59,6 +59,8 @@ interface WorkbenchSessionState {
   select: (sessionId: string | null) => Promise<void>
   sendPrompt: (content: string, images?: ImageAttachmentInfo[], files?: ConversationUploadedFile[]) => Promise<void>
   cancel: () => Promise<void>
+  /** 强制结束挂起回合（session.forceFinish）：普通停止无效时的兜底入口，终结回合并放行排队消息。 */
+  forceFinish: () => Promise<void>
   loadOlderMessages: () => Promise<void>
   loadMessageProcess: (messageId: string) => Promise<void>
   loadFileChanges: (messageId: string) => Promise<void>
@@ -591,6 +593,18 @@ export const useWorkbenchSessionStore = create<WorkbenchSessionState>((set, get)
       await commandClient.execute({ commandId: `cancel-${sid}-${Date.now()}`, type: 'session.cancel', sessionId: sid })
     } catch (error) {
       const message = error instanceof Error ? error.message : '停止失败，请重试'
+      set((state) => ({ stopping: sid === state.selectedSessionId ? false : state.stopping, stopError: sid === state.selectedSessionId ? message : state.stopError, stoppingSessions: withoutKey(state.stoppingSessions, sid), stopErrorsBySession: { ...state.stopErrorsBySession, [sid]: message } }))
+      throw error
+    }
+  },
+  forceFinish: async () => {
+    const sid = get().selectedSessionId
+    if (!sid) return
+    set((state) => ({ stopping: true, stopError: null, stoppingSessions: { ...state.stoppingSessions, [sid]: true }, stopErrorsBySession: withoutKey(state.stopErrorsBySession, sid) }))
+    try {
+      await commandClient.execute({ commandId: `force-finish-${sid}-${Date.now()}`, type: 'session.forceFinish', sessionId: sid })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '强制结束失败，请重试'
       set((state) => ({ stopping: sid === state.selectedSessionId ? false : state.stopping, stopError: sid === state.selectedSessionId ? message : state.stopError, stoppingSessions: withoutKey(state.stoppingSessions, sid), stopErrorsBySession: { ...state.stopErrorsBySession, [sid]: message } }))
       throw error
     }

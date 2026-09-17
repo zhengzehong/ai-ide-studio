@@ -100,6 +100,8 @@ export interface ConversationAdapter {
   processItemErrorByKey?: Record<string, string>
   sendPrompt: (content: string, images?: ImageAttachmentInfo[], files?: ConversationUploadedFile[]) => Promise<void>
   cancel: () => Promise<void>
+  /** 强制结束挂起回合（普通停止无效时的兜底；缺省则不渲染入口）。 */
+  forceFinish?: () => Promise<void>
   loadOlderMessages: () => Promise<void>
   reload?: () => Promise<void>
   markUnread?: () => Promise<void>
