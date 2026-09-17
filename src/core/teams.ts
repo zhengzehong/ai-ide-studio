@@ -24,7 +24,7 @@ import { teamWakeCoordinator } from './team-wake-coordinator.js'
 import { applyToolProfileToAgent } from '../tools/team-profiles.js'
 import { teamConversationStore } from '../store/team-conversations.js'
 import { teamConversationService, resolveTeamLeaderSession, ensureMemberInActiveConversations, ensureMemberInConversation } from './team-conversations.js'
-import { backfillTaskAssignee } from './team-task-assignee.js'
+import { backfillTaskAssignee, withAssigneeWarning } from './team-task-assignee.js'
 // 副作用导入：注册 session:committed_done 上的静默回合兜底唤醒监听（P0b，见 team-silent-turn.ts）。
 import './team-silent-turn.js'
 export type { TeamConversationDetail } from './team-conversations.js'
@@ -73,6 +73,7 @@ export interface CreateTeamResult extends SpawnMemberResult { team: TeamRow }
 export interface DispatchTeamMessageResult {
   status: DispatchMemberPromptStatus
   member: TeamMemberRow
+  assigneeWarning?: string
 }
 export interface CreateTeamTaskInput {
   teamId: string
@@ -107,7 +108,7 @@ export const teamService = {
 
   currentBySession(sessionId: string): TeamContextDetail {
     const currentMember = teamMemberStore.getBySession(sessionId)
-    if (!currentMember) return emptyTeamContext()
+    if (!currentMember) return { team: null, currentMember: null, members: [], tasks: [], mailbox: [] }
     const detail = buildDetail(requireTeam(currentMember.team_id))
     return { ...detail, currentMember }
   },
@@ -197,7 +198,7 @@ export const teamService = {
     const member = requireMember(input.memberId)
     ensureMemberInTeam(member, team)
     const task = input.taskId ? ensureTaskInTeam(input.taskId, team.id) : undefined
-    if (task) markTaskDispatched(team.id, backfillTaskAssignee(task, member), member) // P0-A：派发即补空指派
+    if (task) markTaskDispatched(team.id, backfillTaskAssignee(task, member).task, member) // P0-A：派发即补空指派
     const prompt = buildTeamMemberPrompt({ team, member, content: input.content, taskId: input.taskId, directed: input.directed })
     const conversation = input.sourceSessionId ? teamConversationStore.getBySession(input.sourceSessionId) : undefined
     // 跨团队护栏：构造调用不得借 sourceSessionId 把别的团队的会话线当成本次目标的格子宿主。
@@ -208,7 +209,7 @@ export const teamService = {
       : member.session_id
     const senderRole: 'team-assignment' | 'team-directed' = input.directed ? 'team-directed' : 'team-assignment'
     const status = dispatchMemberPrompt({ teamId: team.id, memberId: member.id, sessionId: targetSessionId, prompt, displayContent: input.content, senderName: input.directed ? '你' : 'Master', senderRole, taskId: input.taskId })
-    return { status, member }
+    return { status, member, ...withAssigneeWarning(task, member) }
   },
 
   listMailbox(teamId: string, limit?: number): TeamMailboxRow[] {
@@ -320,8 +321,6 @@ export const teamService = {
     if (context.teamMemberId) ensureMemberInTeam(requireMember(context.teamMemberId), team)
   },
 }
-function emptyTeamContext(): TeamContextDetail { return { team: null, currentMember: null, members: [], tasks: [], mailbox: [] } }
-
 function emitTeamUpdate(teamId: string, reason: string): void {
   events.emit('team:update', {
     teamId,

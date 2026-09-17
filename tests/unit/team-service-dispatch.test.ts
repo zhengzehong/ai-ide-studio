@@ -74,13 +74,14 @@ describe('team dispatch lifecycle', () => {
     const task = teamService.createTask({ teamId: fixture.team.id, title: '建任务时漏传 assigneeMemberId' })
     expect(task.assignee_member_id).toBeNull()
 
-    teamService.dispatchMessage({
+    const result = teamService.dispatchMessage({
       teamId: fixture.team.id,
       memberId: fixture.member.id,
       content: '请完成这个任务',
       taskId: task.id,
     })
 
+    expect(result.assigneeWarning).toBeUndefined()
     expect(taskStore.get(task.id)).toMatchObject({
       status: 'running',
       assignee_member_id: fixture.member.id,
@@ -115,16 +116,40 @@ describe('team dispatch lifecycle', () => {
     const otherAgent = agentStore.create({ name: 'Other', type: 'dev', runtime: 'mock', projectId: fixture.team.project_id })
     const other = teamService.spawnMember({ teamId: fixture.team.id, agentId: otherAgent.id, name: 'Other' })
 
-    teamService.dispatchMessage({
+    const result = teamService.dispatchMessage({
       teamId: fixture.team.id,
       memberId: other.member.id,
       content: '帮忙看一眼',
       taskId: fixture.task.id,
     })
 
+    // 典型"派错人"：assignee + agent 双非空也必须告警（P1-1 守卫顺序）
+    expect(result.assigneeWarning).toContain(fixture.member.id)
+    expect(result.assigneeWarning).toContain(other.member.name)
     expect(taskStore.get(fixture.task.id)).toMatchObject({
       assignee_member_id: fixture.member.id,
       assigned_agent_id: fixture.member.agent_id,
+    })
+  })
+
+  test('已指派他人且 agent 缺失的冷门态：同样告警且不改写（P1-1 守卫顺序）', () => {
+    vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue()
+    const fixture = createTeamFixture()
+    const otherAgent = agentStore.create({ name: 'Other', type: 'dev', runtime: 'mock', projectId: fixture.team.project_id })
+    const other = teamService.spawnMember({ teamId: fixture.team.id, agentId: otherAgent.id, name: 'Other' })
+    taskStore.update(fixture.task.id, { assignAgentId: null })
+
+    const result = teamService.dispatchMessage({
+      teamId: fixture.team.id,
+      memberId: other.member.id,
+      content: '帮忙看一眼',
+      taskId: fixture.task.id,
+    })
+
+    expect(result.assigneeWarning).toContain(fixture.member.id)
+    expect(taskStore.get(fixture.task.id)).toMatchObject({
+      assignee_member_id: fixture.member.id,
+      assigned_agent_id: null,
     })
   })
 

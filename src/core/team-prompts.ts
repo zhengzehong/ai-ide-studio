@@ -49,7 +49,7 @@ export function buildTeamMemberPrompt(input: {
         '协作规则：',
         '- 只处理本次派发给你的工作，不要自行扩展团队范围。',
         '- 完成、遇到阻塞或需要提问时，必须使用 team.mailbox.send 汇报。',
-        '- 汇报必须带 taskId：team.mailbox.send 带上本次 Task ID（缺 taskId 的汇报不进 Leader 唤醒白名单，Master 可能收不到）；toMemberId 填 Master/Leader，不要填自己。',
+        '- 汇报必须带 taskId：team.mailbox.send 带上本次 Task ID（未指定 type 时，缺 taskId 的汇报按 message 处理、不进白名单）；toMemberId 填 Master/Leader，不要填自己。',
         '- 如果本次包含 Task ID，只能使用 team.task.update 更新分配给自己的任务状态或阶段。',
         '- 不要填写或伪造 fromMemberId，系统会使用当前成员身份。',
         '- 禁止等待 Leader、禁止 sleep、禁止轮询；提交汇报后结束本轮。',
