@@ -75,6 +75,14 @@ async function cancelSessionPrompt(sessionId: string): Promise<void> {
 async function forceFinishSessionPrompt(sessionId: string): Promise<void> {
   const result = await forceFinishPrompt(sessionId, 'manual')
   if (!result.finished) throw new Error('会话没有挂起中的回合,无需强制结束')
+  if (result.superseded) {
+    // 运行时收敛期间原回合已自行收尾、新回合已接管:本轮没有执行任何终态与清理(P1-2)。
+    log.warn(
+      { sessionId, turnId: result.turnId, messageId: result.messageId },
+      'session force finish skipped; a newer turn has taken over the session',
+    )
+    return
+  }
   log.warn(
     { sessionId, turnId: result.turnId, messageId: result.messageId },
     'session prompt force-finished by command',

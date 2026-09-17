@@ -180,7 +180,7 @@ function runPromptWatchdog(): void {
   }
 }
 
-/** 级别 b 自动收敛:保守三条件(排队积压 + 流事件静默 ≥ 阈值),默认关闭。 */
+/** 级别 b 自动收敛:保守两条件(排队积压 + 流事件静默 ≥ 阈值),默认关闭。 */
 function maybeAutoRecover(state: PromptDiagnosticState, now: number, idleForMs: number): void {
   if (!settings.autoRecoverEnabled || state.stuckActionAt !== undefined) return
   if (idleForMs < settings.autoRecoverSilentMs) return

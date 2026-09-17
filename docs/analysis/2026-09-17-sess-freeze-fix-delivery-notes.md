@@ -33,9 +33,11 @@
 - **默认关闭**,把"6 小时无人察觉"压缩成"可见(排队 stage)+ 秒级可解(强制结束)";
 - 建议先跑一段时间、观察 `active prompt watchdog warning` 日志与真实卡死频率,再按部署环境决定是否开启;
 - 若开启,自动收敛只在**两个条件**同时满足时动作:存在排队消息 + 无任何上行流事件 ≥ 阈值。
-- **安全垫是流事件静默(lastProgressAt),不是工具心跳**:所有上行帧(含工具心跳映射帧、工具调用更新)
-  都会经 session:update 路径刷新 lastProgressAt,长工具/长思考期间帧不断,静默不会累积。
-  曾实现的"独立心跳否决位"已删除 —— ACP 工具心跳只存在于 runtime 子进程(process 模式跨进程)
+- **安全垫是流事件静默(lastProgressAt),且它是启发式而非硬保证**:工具心跳/工具更新帧会经
+  session:update 路径刷新 lastProgressAt,但平台**无法保证帧连续** —— 本事故本身就是"活回合静默
+  2h08m 后仍产出真答案"。因此某长工具若长时间不产生任何上行帧,启用自动收敛的部署会在阈值处
+  终结它;这正是默认关 + 阈值下限 30min 的理由。
+- 曾实现的"独立心跳否决位"已删除 —— ACP 工具心跳只存在于 runtime 子进程(process 模式跨进程)
   或 embedded 的 acp 会话键下,API 进程的诊断态永远看不到它,保留一个永不生效的判据只会误导
   (二审 N2/P2-6)。回归用例断言诊断态不再携带该字段,若未来重新引入必须同时提供跨进程上报通道。
 
@@ -47,11 +49,23 @@
 |---|---|---|
 | ① | 事故场景:pending 与事件同 id(合成回合 auto-* 自带内容) | 事件 id 赢,刚启动的真回合行不许动 |
 | ② | 异 id done + 无活跃过程且 pending 有内容(集成契约:done 携带 `done-<sid>`) | 信任 pending(真实流式行) |
-| ③ | 事件 id 无对应行 + 有活跃过程(exit-* / done-* 合成 id) | 回落活跃过程的真实行,**严禁建幽灵行** |
-| ④ | 迟到 done(事件=旧行 id,新回合已接管) | 事件 id 赢,新回合的聚合内容不外溢 |
+| ③ | 事件 id 无对应行 + 有活跃过程(**exit- / done- 前缀**的合成 id) | 回落活跃过程的真实行,**严禁建幽灵行** |
+| ④ | 迟到 done(事件=旧行 id,新回合已接管);**auto-* 一律走本档** | 事件 id 赢,新回合的聚合内容不外溢 |
 
 内容来源与归属行强绑定:只有与目标行同 messageId 的聚合(过程快照 / pending)才能写进去。
 若归属目标是一条不存在且非 auto-* 的行,会留痕 `terminal attribution targets a message row that does not exist`。
+
+三点边界(复审确认后如实记录):
+
+- **auto-\* 排除在 ③ 之外**(P1-R1):自主回合不注册执行过程、行尚未补建,而"在飞 + 新提示到达"
+  时 pending.id 可能已翻转为真实行 —— 若让它命中 ③,真实行会被合成终帧提前终态化(内容只能靠
+  事件流还原)。排除后 auto-* 走 ④:事件 id 赢、不碰真实行,与事故修复前的行为等价。
+- **错误终帧也受"严禁幽灵行"约束**(F1):exit-* 在"无过程、无 pending"时若带 error,过去会补建一条
+  「执行失败」行;现在改为跳过 + 留痕(`error terminal for an unknown non-autonomous id skipped`)
+  —— 该组合只可能是对已结算回合的迟到退出帧,补建反而是虚假失败消息。
+- **无 id 的 pending 聚合**(F4,既有妥协):聚合整体没有 messageId 时,内容会写进归属行;
+  若该聚合实际来自另一回合即为外溢。触发需所有帧都不带 messageId(平台帧基本都带),风险极低,
+  本次不改行为,仅记录。
 
 ## 四、使用方式
 
@@ -63,6 +77,8 @@
      不会踩掉新回合的占位与看门狗状态(日志:`force finish superseded by a newer turn`);
    - **行兜底**:活跃过程 id 取不到时,按会话反查最新 running 的 agent 行置终态;
      若行已是终态则跳过合成终帧,不重复写 `message.done` 事件。
+   - **命令回执措辞**:若运行时收敛期间新回合已接管,命令返回成功但日志为
+     `session force finish skipped; a newer turn has taken over the session`(没有执行任何清理)。
 2. **终稿找回**:`sessions.recoveredDraft`(`{sessionId, messageId}`)按 messageId 从 `session_events`
    只读合并 message.chunk 还原真实终稿;只读 RPC,不写库、不改变消息行状态。
    **注意:该 RPC 目前没有 UI 入口**(只能在脚本/自定义客户端调用);产品侧的自动路径是
@@ -70,6 +86,8 @@
 3. **日志留痕**(排查用):
    - 终帧归属不一致 → `terminal messageId mismatch; attributing per attribution rule`(带 event/process/pending id 与来源);
    - 归属到不存在的行 → `terminal attribution targets a message row that does not exist`;
+   - 错误终帧不再补建幽灵行 → `error terminal for an unknown non-autonomous id skipped; no ghost row created`;
+   - 迟到终帧不清在飞回合 stage → `skipped stage cleanup; the session stage belongs to a newer turn`;
    - 终态写入未命中 running 行(`applied=false`)→ `terminal write was not applied to a running row; content may be dropped by the write guard`;
    - 行已终态导致快照被拒 → `running snapshot dropped: message row already terminal`;
    - 强制结束命中新回合而跳过 → `force finish superseded by a newer turn; skipping terminalization and cleanup`

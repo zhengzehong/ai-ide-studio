@@ -193,6 +193,8 @@ async function finalizeSessionMessage(ev: AppEvents['session:done']): Promise<vo
       ? 'cancelled'
       : 'completed'
   const processResult = await completeTurnProcess(ev.sessionId, processStatus)
+  // 终帧到达时"在飞回合"的行 id:迟到终帧场景下它属于更新的回合,用于判断 stage 归属(F2)。
+  const inFlightMessageId = processResult.messageId ?? getActiveTurnMessageId(ev.sessionId)
   // 归属:事件 messageId 与活跃过程/待终稿的内容源按四场景契约判定(2026-09-17 sess-d83044f2
   // 误归属事故 + 双审:exit-*/done-* 合成 id 不得建幽灵行,见 terminal-attribution.ts)。
   const eventRowExists = messageStore.get(ev.messageId) !== undefined
@@ -249,14 +251,30 @@ async function finalizeSessionMessage(ev: AppEvents['session:done']): Promise<vo
       logMessage: 'agent message completed from running snapshot',
     })
   } else if (ev.stopReason === 'error' && ev.error) {
-    const content = `执行失败：${ev.error}`
-    await commitFinalMessage(ev, {
-      messageId: finalMessageId,
-      content,
-      processStatus: 'failed',
-      progress: 'message.error.finalized',
-      logMessage: 'agent error message finalized',
-    })
+    if (finalMessageId === ev.messageId && !eventRowExists && !isAutonomousTurnMessageId(ev.messageId)) {
+      // "严禁幽灵行"完全兑现(F1):exit-* 在"无过程、无 pending"时走到错误分支,只可能是
+      // 对已结算回合的迟到退出帧 —— 再建一行就是一条虚假的"执行失败"消息。
+      log.warn(
+        {
+          sessionId: ev.sessionId,
+          agentId: ev.agentId,
+          turnId,
+          messageId: finalMessageId,
+          error: ev.error,
+        },
+        'error terminal for an unknown non-autonomous id skipped; no ghost row created',
+      )
+      await skipTerminalWrite(ev, turnId, finalMessageId, inFlightMessageId, 'session error without finalizable message')
+    } else {
+      const content = `执行失败：${ev.error}`
+      await commitFinalMessage(ev, {
+        messageId: finalMessageId,
+        content,
+        processStatus: 'failed',
+        progress: 'message.error.finalized',
+        logMessage: 'agent error message finalized',
+      })
+    }
   } else {
     // 没有任何与归属行同源的聚合内容。行仍在 running 时必须置终态(否则留下永久僵尸行,
     // 写侧守卫还会静默丢弃后续快照);行不存在时保持旧行为(只清 stage),两者都留痕。
@@ -286,13 +304,7 @@ async function finalizeSessionMessage(ev: AppEvents['session:done']): Promise<vo
         logMessage: 'agent message finalized without matching content',
       })
     } else {
-      await sessionPersistencePort.commitMutations(ev.sessionId, 'critical', [{
-        type: 'session.stage.clear-running',
-        sessionId: ev.sessionId,
-        timestamp: new Date().toISOString(),
-      }])
-      log.debug({ sessionId: ev.sessionId, agentId: ev.agentId, turnId, messageId: finalMessageId, stopReason: ev.stopReason }, 'session done without finalizable message')
-      recordPromptProgress(ev.sessionId, 'message.finalize.skipped')
+      await skipTerminalWrite(ev, turnId, finalMessageId, inFlightMessageId, 'session done without finalizable message')
     }
   }
   const updated = sessionStore.get(ev.sessionId)
@@ -308,6 +320,41 @@ interface FinalMessageCommitInput {
   thinkingLength?: number
   progress: string
   logMessage: string
+}
+
+/**
+ * 无内容可写的终帧收尾:清运行中 stage + 留痕。F2:迟到的重复终帧(目标是旧行)不得
+ * 清掉在飞新回合的 stage —— 只有当归属行就是当时在飞回合的行(或已无在飞回合)时才清。
+ */
+async function skipTerminalWrite(
+  ev: AppEvents['session:done'],
+  turnId: string | undefined,
+  finalMessageId: string,
+  inFlightMessageId: string | undefined,
+  logMessage: string,
+): Promise<void> {
+  if (inFlightMessageId !== undefined && inFlightMessageId !== finalMessageId) {
+    log.info(
+      {
+        sessionId: ev.sessionId,
+        agentId: ev.agentId,
+        turnId,
+        messageId: finalMessageId,
+        inFlightMessageId,
+        stopReason: ev.stopReason,
+      },
+      'skipped stage cleanup; the session stage belongs to a newer turn',
+    )
+    recordPromptProgress(ev.sessionId, 'message.finalize.skipped')
+    return
+  }
+  await sessionPersistencePort.commitMutations(ev.sessionId, 'critical', [{
+    type: 'session.stage.clear-running',
+    sessionId: ev.sessionId,
+    timestamp: new Date().toISOString(),
+  }])
+  log.debug({ sessionId: ev.sessionId, agentId: ev.agentId, turnId, messageId: finalMessageId, stopReason: ev.stopReason }, logMessage)
+  recordPromptProgress(ev.sessionId, 'message.finalize.skipped')
 }
 
 async function commitFinalMessage(ev: AppEvents['session:done'], input: FinalMessageCommitInput): Promise<void> {

@@ -9,6 +9,7 @@ import {
   createWorkerWriteDataPort,
   type WorkerWriteDataPort,
 } from '../../src/data-worker/writer-worker/client.js'
+import { reconstructSessionTurnResult } from '../../src/data-worker/writer-worker/turn-process-operations.js'
 import type {
   OutboxEventInput,
   WriteBatch,
@@ -417,6 +418,38 @@ describe('Writer Worker', () => {
     usingDatabase((db) => {
       expect(db.prepare('SELECT role, status, started_at, completed_at, sender_role FROM messages WHERE id = ?').get('auto-inserted'))
         .toEqual({ role: 'agent', status: 'completed', started_at: timestamp, completed_at: timestamp, sender_role: 'assistant' })
+    })
+  })
+
+  // F6:reconstructSessionTurnResult 的 applied 推导直接单测(不走批次重放路径)。
+  it('derives applied from the row state when reconstructing a committed finalize result', async () => {
+    const session = sessionStore.create({ agentId: 'agent-reconstruct' })
+    const message = messageStore.append(session.id, {
+      id: 'message-reconstruct',
+      role: 'agent',
+      content: 'final answer',
+      status: 'completed',
+    })
+    closeDatabase()
+
+    const input = (overrides: { messageId: string; status: string }) => ({
+      sessionId: session.id,
+      messageId: overrides.messageId,
+      processStatus: overrides.status,
+      content: 'final answer',
+      status: overrides.status,
+      timestamp: '2026-08-25T15:00:00.000Z',
+    })
+    usingDatabase((db) => {
+      // 行存在且状态与本批次一致 → 终态确实在行上
+      expect(reconstructSessionTurnResult(db, input({ messageId: message.id, status: 'completed' })))
+        .toMatchObject({ messageId: message.id, applied: true })
+      // 行不存在 → 没有落库
+      expect(reconstructSessionTurnResult(db, input({ messageId: 'message-missing', status: 'completed' })))
+        .toMatchObject({ messageId: 'message-missing', applied: false })
+      // 行存在但状态不同(迟到的另一次收尾)→ 本批次未生效
+      expect(reconstructSessionTurnResult(db, input({ messageId: message.id, status: 'cancelled' })))
+        .toMatchObject({ messageId: message.id, applied: false })
     })
   })
 

@@ -85,6 +85,34 @@ describe('resolveTerminalAttribution', () => {
     expect(withPending.usePendingContent).toBe(true)
   })
 
+  // P1-R1(复审阻塞):auto-* 即使"无行 + 有活跃过程"也不得回落 —— 自主回合不注册执行过程、
+  // 行尚未补建,而"在飞 + 新提示到达"时 pending.id 已翻转为真实行,回落会把真实行提前终态化。
+  test('P1-R1: autonomous id with flipped pending never falls back to the real turn row', () => {
+    const flipped = resolveTerminalAttribution({
+      eventMessageId: 'auto-7',
+      processMessageId: 'msg-real-turn',
+      hasPendingContent: true,
+      pendingMessageId: 'msg-real-turn',
+      eventRowExists: false,
+    })
+    expect(flipped.messageId).toBe('auto-7')
+    expect(flipped.source).toBe('event')
+    expect(flipped.mismatch).toBe(true)
+    expect(flipped.useProcessContent).toBe(false)
+    expect(flipped.usePendingContent).toBe(false)
+
+    // 对照:同样的形状换成 exit-* 必须回落(否则 B1 回归)。
+    const exitLike = resolveTerminalAttribution({
+      eventMessageId: 'exit-1789608680000',
+      processMessageId: 'msg-real-turn',
+      hasPendingContent: true,
+      pendingMessageId: 'msg-real-turn',
+      eventRowExists: false,
+    })
+    expect(exitLike.messageId).toBe('msg-real-turn')
+    expect(exitLike.source).toBe('process')
+  })
+
   test('late done for an existing old row: event id wins, new turn aggregations do not spill', () => {
     const result = resolveTerminalAttribution({
       eventMessageId: 'msg-old-turn',
