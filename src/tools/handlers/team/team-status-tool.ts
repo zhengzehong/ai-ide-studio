@@ -2,8 +2,11 @@
  * team.status（P0a）：Leader 调用一次，拿到每个成员"现在干到哪、多久没吭声"的只读快照。
  * 字段级契约见方案文档 §1.2；数据源与算法逐条对应，改动时同步文档。
  *
- * 组成：顶层团队聚合 + 逐成员（运行态 / 各线格子 / 排队深度 / 在飞 / 最后一条唤醒级汇报 / 名下任务统计）。
+ * 组成：顶层团队聚合 + 逐成员（运行态 / 本线格子 / 排队深度 / 在飞 / 最后一条唤醒级汇报 / 名下本线任务统计）。
  * 运行态口径与 UI 绿点、会话线 running 完全一致：resolveSessionRuntimeState（store/session-runtime-state.ts）。
+ *
+ * 会话线硬隔离（v3）：本工具是 agent 视野——成员、格子、排队/在飞、汇报、任务全部按**调用会话所在线**过滤，
+ * 他线成员与他线活动一概不可见（队列/在飞只聚合本线格子；跨线聚合视图属人的视野，见 UI 团队面板）。
  */
 import { sessionStore } from '../../../store/sessions.js'
 import { resolveSessionRuntimeState, type SessionRuntimeState } from '../../../store/session-runtime-state.js'
@@ -12,6 +15,7 @@ import { teamMailboxStore, teamMemberStore, teamStore, type TeamMemberRow, type 
 import { teamConversationStore } from '../../../store/team-conversations.js'
 import { teamService } from '../../../core/teams.js'
 import { assertTeamMemberAccess } from '../../../core/team-access.js'
+import { describeLineScope, taskVisibleInLine, type AgentLineScope } from '../../../core/team-line-scope.js'
 import { sessionManager } from '../../../core/sessions.js'
 import { getMemberQueueDepth, isMemberPromptInFlight } from '../../../core/team-member-dispatcher.js'
 import type { ToolContext, ToolHandler, ToolHandlerInput, ToolHandlerResult } from '../../types.js'
@@ -46,9 +50,9 @@ interface MemberStatus {
 export const getTeamStatusHandler: ToolHandler = {
   name: 'team.status',
   description:
-    '一次查看团队成员运行态与汇报态（只读快照）：各线格子 running/idle、派发排队深度、是否在飞、'
-    + '最后一条给 Leader 的汇报时间与类型、名下任务统计。适用于用户询问进度、被唤醒后跟进、总结前核对。'
-    + '这是查询快照，不是订阅：系统会在成员汇报时自动唤醒你，不要轮询本工具。',
+    '一次查看本会话线成员的运行态与汇报态（只读快照）：本线格子 running/idle、派发排队深度、是否在飞、'
+    + '最后一条给 Leader 的汇报时间与类型、名下本线任务统计。适用于用户询问进度、被唤醒后跟进、总结前核对。'
+    + '按会话线硬隔离（不含他线成员与他线活动）；这是查询快照，不是订阅：系统会在成员汇报时自动唤醒你，不要轮询本工具。',
   inputSchema: {
     type: 'object',
     properties: { teamId: { type: 'string', description: 'Team ID；不传时使用上下文 Team' } },
@@ -57,16 +61,22 @@ export const getTeamStatusHandler: ToolHandler = {
     const teamId = resolveTeamId(input, context)
     assertTeamAccess(teamId, context)
     const team = requireTeam(teamId)
+    const scope = teamService.lineScope(team.id, { sessionId: context.sessionId, teamMemberId: context.teamMemberId })
 
-    const members = teamMemberStore.list(team.id).filter((member) => member.status === 'active')
-    const gridRows = teamConversationStore.listGridActivity(team.id)
-    const conversationTitles = new Map(teamConversationStore.list(team.id).map((row) => [row.id, row.title]))
-    const tasks = taskStore.listByTeam(team.id)
+    const lineGrids = teamConversationStore.listGridActivity(team.id)
+      .filter((row) => row.conversation_id === scope.conversationId)
+    const lineMemberIds = new Set(lineGrids.map((row) => row.member_id).filter((id): id is string => Boolean(id)))
+    const members = teamMemberStore.list(team.id)
+      .filter((member) => member.status === 'active' && lineMemberIds.has(member.id))
+    const conversationTitles = new Map(teamConversationStore.list(team.id)
+      .filter((row) => row.id === scope.conversationId)
+      .map((row) => [row.id, row.title]))
+    const tasks = taskStore.listByTeam(team.id).filter((task) => taskVisibleInLine(team.id, task, scope))
     const lastTaskEvent = taskEventStore.listLastEventByTaskIds(tasks.map((task) => task.id))
     const now = Date.now()
 
     const memberStatuses = members
-      .map((member) => buildMemberStatus(member, team, gridRows, conversationTitles, tasks, lastTaskEvent, now))
+      .map((member) => buildMemberStatus(member, team, scope, lineGrids, conversationTitles, tasks, lastTaskEvent, now))
       .sort(compareMembers)
 
     const runningMembers = memberStatuses.filter((member) => member.runtimeState === 'running').length
@@ -80,6 +90,7 @@ export const getTeamStatusHandler: ToolHandler = {
       runningMembers,
       allIdle,
       generatedAt: new Date(now).toISOString(),
+      lineScope: describeLineScope(scope),
       members: memberStatuses,
     })
   },
@@ -88,24 +99,24 @@ export const getTeamStatusHandler: ToolHandler = {
 function buildMemberStatus(
   member: TeamMemberRow,
   team: TeamRow,
-  gridRows: ReturnType<typeof teamConversationStore.listGridActivity>,
+  scope: AgentLineScope,
+  lineGrids: ReturnType<typeof teamConversationStore.listGridActivity>,
   conversationTitles: Map<string, string>,
   tasks: ReturnType<typeof taskStore.listByTeam>,
   lastTaskEvent: ReturnType<typeof taskEventStore.listLastEventByTaskIds>,
   now: number,
 ): MemberStatus {
-  // 该成员全部会话的 activity_state（primary + 各线格子），与列表页绿点同一套信号（sessions.ts listWithRuntimeState）。
+  // 该成员全部会话的 activity_state（格子态优先取聚合查询结果；会话已关闭/删除时按同一函数现场判定）。
   const runtimeStates = new Map(sessionStore
     .listWithRuntimeState(member.agent_id, team.project_id, sessionManager.isPromptActive)
     .map((row) => [row.id, row.activity_state as SessionRuntimeState]))
 
-  const cells: MemberCellStatus[] = gridRows
+  const cells: MemberCellStatus[] = lineGrids
     .filter((row) => row.member_id === member.id && row.session_id)
     .map((row) => ({
       conversationId: row.conversation_id,
       conversationTitle: conversationTitles.get(row.conversation_id) ?? null,
       sessionId: row.session_id as string,
-      // 格子态优先取聚合查询结果；格子在运行信号表里缺失（会话已关闭/删除）时按同一函数现场判定。
       state: runtimeStates.get(row.session_id as string) ?? resolveSessionRuntimeState({
         promptActive: sessionManager.isPromptActive(row.session_id as string),
         hasRunningAgentMessage: row.has_running_agent_message === 1,
@@ -116,13 +127,10 @@ function buildMemberStatus(
       stage: row.stage || null,
     }))
 
-  // 成员运行态 = 各线格子 ∪ primary 会话（任一 running 即 running）。
-  const primaryState = runtimeStates.get(member.session_id) ?? 'idle'
-  const runtimeState: SessionRuntimeState = primaryState === 'running' || cells.some((cell) => cell.state === 'running')
-    ? 'running'
-    : 'idle'
+  // 成员运行态 = 本线格子（线隔离：他线格子在跑不算"本线成员在忙"，避免把别条线的活动漏进本线视图）。
+  const runtimeState: SessionRuntimeState = cells.some((cell) => cell.state === 'running') ? 'running' : 'idle'
 
-  const lastMailbox = teamMailboxStore.latestFromMember(team.id, member.id)
+  const lastMailbox = teamMailboxStore.latestFromMember(team.id, member.id, scope)
   const memberTasks = tasks.filter((task) => task.assignee_member_id === member.id)
   const taskLastUpdateAt = memberTasks
     .map((task) => lastTaskEvent[task.id]?.created_at)
@@ -130,10 +138,9 @@ function buildMemberStatus(
     .sort()
     .at(-1) ?? null
 
-  // 派发队列的键控维度是"格子会话"（dispatchMessage → ensureMemberInConversation 的目标会话），
-  // primary 只是其中一格或无会话线时的兜底，因此排队/在飞必须对 primary + 全部格子聚合：
-  // 深度取 max、在飞取 any——只查 primary 会让"第二条线起"恒为 0（多线漏报）。
-  const dispatchSessionIds = [...new Set([member.session_id, ...cells.map((cell) => cell.sessionId)]).values()]
+  // 派发队列的键控维度是"格子会话"：线隔离后派发目标恒为本线格子（dispatchMessage → ensureMemberInConversation），
+  // 因此排队/在飞只聚合本线格子——他线的排队与本线 Master 无关，也不应出现在本线视图里。
+  const dispatchSessionIds = [...new Set(cells.map((cell) => cell.sessionId)).values()]
 
   return {
     memberId: member.id,

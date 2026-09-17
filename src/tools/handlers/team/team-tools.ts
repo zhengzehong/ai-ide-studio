@@ -2,6 +2,7 @@ import { teamService } from '../../../core/teams.js'
 import { createChildLogger } from '../../../core/logger.js'
 import type { ToolContext, ToolHandler, ToolHandlerInput, ToolHandlerResult } from '../../types.js'
 import { assertTeamMemberAccess } from '../../../core/team-access.js'
+import { describeLineScope, type AgentLineScope } from '../../../core/team-line-scope.js'
 
 const log = createChildLogger('team-tools')
 
@@ -18,12 +19,13 @@ export const listTeamsHandler: ToolHandler = {
 
 export const getTeamHandler: ToolHandler = {
   name: 'team.get',
-  description: '获取 Team 详情、成员、任务和最近 mailbox',
+  description: '获取 Team 详情、本线成员、本线任务和本线最近 mailbox（按会话线硬隔离，只看当前会话线）',
   inputSchema: { type: 'object', properties: { teamId: { type: 'string' } }, required: ['teamId'] },
   async execute(input, context) {
     const teamId = resolveTeamId(input, context)
     assertTeamAccess(teamId, context)
-    return jsonResult(teamService.detail(teamId))
+    const scope = lineScopeFor(teamId, context)
+    return jsonResult(teamService.detailForLine(teamId, scope))
   },
 }
 
@@ -44,6 +46,9 @@ export const createTeamHandler: ToolHandler = {
         description: optionalString(input, 'description'),
         masterPrompt: optionalString(input, 'masterPrompt'),
       })
+    // agent 建团队时同步开首线：agent 没有"新建会话线"工具（那是人在团队面板里的动作），
+    // 而 v3 硬隔离下无线团队的 mailbox 写入会被拒收（成员汇报必丢），故在建团队时补齐这条线。
+    teamService.ensureDefaultConversation(team.id)
     return jsonResult({ team: { teamId: team.id, name: team.name, description: team.description } })
   },
 }
@@ -154,18 +159,22 @@ export const messageTeamMemberHandler: ToolHandler = {
 
 export const listTeamMailboxHandler: ToolHandler = {
   name: 'team.mailbox.list',
-  description: '查看团队留言、问题、结果和汇报',
+  description: '查看本会话线的团队留言、问题、结果和汇报（按会话线硬隔离，不含他线，无全局开关）',
   inputSchema: { type: 'object', properties: { teamId: { type: 'string' }, limit: { type: 'number' } } },
   async execute(input, context) {
     const teamId = resolveTeamId(input, context)
     assertTeamAccess(teamId, context)
-    return jsonResult({ messages: teamService.listMailbox(teamId, optionalNumber(input, 'limit')) })
+    const scope = lineScopeFor(teamId, context)
+    return jsonResult({
+      messages: teamService.listMailboxForLine(teamId, scope, optionalNumber(input, 'limit')),
+      lineScope: describeLineScope(scope),
+    })
   },
 }
 
 export const sendTeamMailboxHandler: ToolHandler = {
   name: 'team.mailbox.send',
-  description: '写入团队留言、问题、结果或汇报，不触发 Agent 执行；成员汇报请带 taskId，并把 toMemberId 填 Leader/留空（不要填自己）',
+  description: '写入本会话线的团队留言、问题、结果或汇报，不触发 Agent 执行；type=report/result 必须带 taskId；成员汇报请把 toMemberId 填 Leader/留空（不要填自己）',
   inputSchema: {
     type: 'object',
     properties: {
@@ -188,14 +197,23 @@ export const sendTeamMailboxHandler: ToolHandler = {
     }
     const fromMemberId = context.teamMemberId ?? inputFromMemberId
     const toMemberId = optionalString(input, 'toMemberId')
+    const taskId = optionalString(input, 'taskId')
+    // 带 taskId 的汇报默认按 'report' 处理：任务汇报应进入 Leader 唤醒白名单，避免默认 'message' 静默。
+    const type = optionalString(input, 'type') ?? (taskId ? 'report' : 'message')
+    // 未绑任务的汇报/结果：不会随任务状态进入 Master 的判断链路（等于静默丢报），直接拒收并说清原因。
+    if (!taskId && (type === 'report' || type === 'result')) {
+      throw new Error(
+        `team.mailbox.send: type=${type} 属于任务汇报，必须带 taskId —— 未绑任务的汇报不会投递（无法随任务状态唤醒 Master）。`
+        + '请补上本次汇报对应的 taskId；若确实没有对应任务，请改用 type=message（只进本线邮箱，不唤醒）或 type=question/blocked（会唤醒 Master）。',
+      )
+    }
     const message = teamService.sendMailbox({
       teamId,
-      // 带 taskId 的汇报默认按 'report' 处理：任务汇报应进入 Leader 唤醒白名单，避免默认 'message' 静默。
-      type: optionalString(input, 'type') ?? (optionalString(input, 'taskId') ? 'report' : 'message'),
+      type,
       content: requireString(input, 'content'),
       fromMemberId,
       toMemberId,
-      taskId: optionalString(input, 'taskId'),
+      taskId,
       payload: input.payload,
       sourceSessionId: context.sessionId,
     })
@@ -216,18 +234,23 @@ export const sendTeamMailboxHandler: ToolHandler = {
             + '汇报请把 toMemberId 填 Leader（或留空广播），并带上本次 taskId。',
         }
         : {}),
+      lineScope: { conversationId: message.conversation_id },
     })
   },
 }
 
 export const listTeamTasksHandler: ToolHandler = {
   name: 'team.task.list',
-  description: '查看 Team 关联任务',
+  description: '查看本会话线的 Team 关联任务（按会话线硬隔离，不含他线任务）',
   inputSchema: { type: 'object', properties: { teamId: { type: 'string' }, status: { type: 'string' } } },
   async execute(input, context) {
     const teamId = resolveTeamId(input, context)
     assertTeamAccess(teamId, context)
-    return jsonResult({ tasks: teamService.listTasks(teamId, optionalString(input, 'status')) })
+    const scope = lineScopeFor(teamId, context)
+    return jsonResult({
+      tasks: teamService.listTasksForLine(teamId, scope, optionalString(input, 'status')),
+      lineScope: describeLineScope(scope),
+    })
   },
 }
 
@@ -322,6 +345,14 @@ function assertTeamAccess(teamId: string, context: ToolContext): void {
     teamId: context.teamId,
     teamMemberId: context.teamMemberId,
   })
+}
+
+/**
+ * 只读工具的会话线隔离范围（团队邮箱硬隔离 v3）：调用会话所在线 → 成员主格线 → 团队默认线；
+ * 团队没有任何活跃线时直接拒绝（不退回"看全团队"——那正是串线的来源）。
+ */
+function lineScopeFor(teamId: string, context: ToolContext): AgentLineScope {
+  return teamService.lineScope(teamId, { sessionId: context.sessionId, teamMemberId: context.teamMemberId })
 }
 
 function requireString(input: ToolHandlerInput, key: string): string {

@@ -25,24 +25,14 @@ import { applyToolProfileToAgent } from '../tools/team-profiles.js'
 import { teamConversationStore } from '../store/team-conversations.js'
 import { teamConversationService, resolveTeamLeaderSession, ensureMemberInActiveConversations, ensureMemberInConversation } from './team-conversations.js'
 import { backfillTaskAssignee, withAssigneeWarning } from './team-task-assignee.js'
+import { teamLineService, resolveMailboxLineOrReject } from './team-line-service.js'
+import { teamViewService } from './team-view.js'
 // 副作用导入：注册 session:committed_done 上的静默回合兜底唤醒监听（P0b，见 team-silent-turn.ts）。
 import './team-silent-turn.js'
 export type { TeamConversationDetail } from './team-conversations.js'
+export type { TeamDetail, TeamContextDetail } from './team-view.js'
 const log = createChildLogger('teams')
 
-export interface TeamDetail {
-  team: TeamRow
-  members: TeamMemberRow[]
-  tasks: TaskRow[]
-  mailbox: TeamMailboxRow[]
-}
-export interface TeamContextDetail {
-  team: TeamRow | null
-  currentMember: TeamMemberRow | null
-  members: TeamMemberRow[]
-  tasks: TaskRow[]
-  mailbox: TeamMailboxRow[]
-}
 export interface CreateTeamInput {
   projectId: string
   leaderAgentId?: string
@@ -101,17 +91,8 @@ export const teamService = {
     return teamStore.list(projectId)
   },
   ...teamConversationService,
-  detail(teamId: string): TeamDetail {
-    const team = requireTeam(teamId)
-    return buildDetail(team)
-  },
-
-  currentBySession(sessionId: string): TeamContextDetail {
-    const currentMember = teamMemberStore.getBySession(sessionId)
-    if (!currentMember) return { team: null, currentMember: null, members: [], tasks: [], mailbox: [] }
-    const detail = buildDetail(requireTeam(currentMember.team_id))
-    return { ...detail, currentMember }
-  },
+  ...teamLineService,
+  ...teamViewService,
 
   create(input: CreateTeamInput): CreateTeamResult {
     ensureProject(input.projectId)
@@ -212,9 +193,12 @@ export const teamService = {
     return { status, member, ...withAssigneeWarning(task, member) }
   },
 
+  /**
+   * 全量 mailbox（人的视野：UI 团队面板 / RPC）。**agent 工具视图必须走 listMailboxForLine**。
+   * 实现见 team-line-service.ts（会话线隔离服务层，本文件有 400 行守卫）。
+   */
   listMailbox(teamId: string, limit?: number): TeamMailboxRow[] {
-    requireTeam(teamId)
-    return teamMailboxStore.list(teamId, limit)
+    return teamLineService.listMailbox(teamId, limit)
   },
 
   sendMailbox(input: {
@@ -231,6 +215,8 @@ export const teamService = {
     if (input.fromMemberId) ensureMemberInTeam(requireMember(input.fromMemberId), team)
     if (input.toMemberId) ensureMemberInTeam(requireMember(input.toMemberId), team)
     if (input.taskId) ensureTaskInTeam(input.taskId, team.id)
+    // 归属四级兜底（会话线隔离 v3）：落不了线一律拒收，绝不写"团队级邮件"。
+    const line = resolveMailboxLineOrReject(team, input)
     const message = teamMailboxStore.create({
       teamId: team.id,
       projectId: team.project_id,
@@ -240,7 +226,12 @@ export const teamService = {
       type: input.type,
       content: input.content,
       payload: input.payload,
+      conversationId: line.conversationId,
     })
+    log.info(
+      { teamId: team.id, messageId: message.id, type: message.type, conversationId: line.conversationId, via: line.via },
+      'Team mailbox line attributed',
+    )
     teamWakeCoordinator.notifyMailbox(message, input.sourceSessionId)
     emitTeamUpdate(team.id, 'mailbox.created')
     return message
@@ -346,20 +337,11 @@ function markTaskDispatched(teamId: string, task: TaskRow, member: TeamMemberRow
   emitTeamUpdate(teamId, 'task.dispatched')
 }
 
-function buildDetail(team: TeamRow): TeamDetail {
-  return {
-    team,
-    members: teamMemberStore.list(team.id),
-    tasks: taskStore.listByTeam(team.id),
-    mailbox: teamMailboxStore.list(team.id, 20),
-  }
-}
-
 function ensureProject(projectId: string): void {
   if (!projectStore.get(projectId)) throw new Error(`项目不存在: ${projectId}`)
 }
 
-function requireTeam(teamId: string): TeamRow {
+export function requireTeam(teamId: string): TeamRow {
   const team = teamStore.get(teamId)
   if (!team) throw new Error(`Team 不存在: ${teamId}`)
   return team

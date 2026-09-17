@@ -68,15 +68,31 @@ export const teamConversationStore = {
     return getDb().prepare<[string], TeamConversationRow>('SELECT * FROM team_conversations WHERE id = ?').get(id)
   },
 
+  /**
+   * 反查 session 所属活跃会话线。理论上一格只属一条线，但同一 session 被多条线复用（历史数据/极端时序）时
+   * 必须有确定结果：取最近更新的线，再按 id 兜底 —— 无 ORDER BY 的 LIMIT 1 会随查询计划漂移，
+   * 会话线隔离（归属/唤醒/视图）都建在这个函数上，结果不稳定会让同一封邮件落到不同的线。
+   */
   getBySession(sessionId: string): TeamConversationRow | undefined {
     return getDb().prepare<[string], TeamConversationRow>(`SELECT tc.* FROM team_conversations tc
       JOIN team_conversation_members tcm ON tcm.conversation_id = tc.id
-      WHERE tcm.session_id = ? AND tcm.left_at IS NULL AND tc.status = 'active' LIMIT 1`).get(sessionId)
+      WHERE tcm.session_id = ? AND tcm.left_at IS NULL AND tc.status = 'active'
+      ORDER BY tc.updated_at DESC, tc.id ASC LIMIT 1`).get(sessionId)
   },
 
   list(teamId: string): TeamConversationRow[] {
     return getDb().prepare<[string], TeamConversationRow>(`SELECT * FROM team_conversations
       WHERE team_id = ? AND status != 'deleted' ORDER BY updated_at DESC`).all(teamId)
+  },
+
+  /**
+   * 活跃会话线，按**创建顺序**（created_at ASC, rowid ASC）。
+   * 团队默认线 = 第一条（见 core/team-line-scope.ts）：created_at 同毫秒时用 rowid
+   * （插入顺序）兜底，保证"最早"在测试与线上都可复现——只按 created_at 排会在同毫秒建线时退化成随机序。
+   */
+  listActiveByCreation(teamId: string): TeamConversationRow[] {
+    return getDb().prepare<[string], TeamConversationRow>(`SELECT * FROM team_conversations
+      WHERE team_id = ? AND status = 'active' ORDER BY created_at ASC, rowid ASC`).all(teamId)
   },
 
   updateTitle(id: string, title: string): TeamConversationRow | undefined {

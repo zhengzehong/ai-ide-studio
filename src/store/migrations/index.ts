@@ -75,6 +75,7 @@ import { teamToolBindingsBackfillMigration } from './073-team-tool-bindings-back
 import { eventCenterListIndexMigration } from './074-event-center-list-index.js'
 import { sessionEventsPendingIndexMigration } from './075-session-events-pending-index.js'
 import { messagesFileChangesSlimMigration } from './076-messages-file-changes-slim.js'
+import { teamMailboxConversationMigration } from './077-team-mailbox-conversation.js'
 
 export const migrations: Migration[] = [
   initialSchemaMigration,
@@ -153,4 +154,5 @@ export const migrations: Migration[] = [
   eventCenterListIndexMigration,
   sessionEventsPendingIndexMigration,
   messagesFileChangesSlimMigration,
+  teamMailboxConversationMigration,
 ]

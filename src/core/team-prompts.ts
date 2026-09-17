@@ -40,7 +40,7 @@ export function buildTeamMemberPrompt(input: {
         '协作规则：',
         '- 只处理用户本次直接发给你的内容，不要自行扩展范围。',
         '- 需要汇报或提问时使用 team.mailbox.send；Master 不会自动看到这条消息的上下文，重要结论请落 mailbox。',
-        '- 汇报请带上本次 Task ID（若有），toMemberId 填 Master/Leader，不要填自己。',
+        '- 汇报请带上本次 Task ID（若有）；显式 type=report/result 缺 taskId 会被系统拒收。toMemberId 填 Master/Leader，不要填自己。',
         '- 禁止等待 Leader、禁止 sleep、禁止轮询；提交汇报后结束本轮。',
         '',
         '用户消息：',
@@ -49,7 +49,7 @@ export function buildTeamMemberPrompt(input: {
         '协作规则：',
         '- 只处理本次派发给你的工作，不要自行扩展团队范围。',
         '- 完成、遇到阻塞或需要提问时，必须使用 team.mailbox.send 汇报。',
-        '- 汇报必须带 taskId：team.mailbox.send 带上本次 Task ID（未指定 type 时，缺 taskId 的汇报按 message 处理、不进白名单）；toMemberId 填 Master/Leader，不要填自己。',
+        '- 汇报必须带 taskId：team.mailbox.send 带上本次 Task ID（未指定 type 时，缺 taskId 的汇报按 message 处理、不进白名单；显式 type=report/result 缺 taskId 会被系统拒收）；toMemberId 填 Master/Leader，不要填自己。',
         '- 如果本次包含 Task ID，只能使用 team.task.update 更新分配给自己的任务状态或阶段。',
         '- 不要填写或伪造 fromMemberId，系统会使用当前成员身份。',
         '- 禁止等待 Leader、禁止 sleep、禁止轮询；提交汇报后结束本轮。',
@@ -62,12 +62,19 @@ export function buildTeamMemberPrompt(input: {
     .join('\n')
 }
 
+/** 唤醒 prompt 末尾的"触发内容快照"：任务状态行 + 相关邮件摘要行（由 team-wake-coordinator 格式化）。 */
+export interface WakeTriggerSnapshot {
+  taskLines?: string[]
+  mailboxLines?: string[]
+}
+
 export function buildLeaderWakePrompt(input: {
   team: TeamRow
   member: TeamMemberRow
   message?: TeamMailboxRow
   task?: TaskRow
   dispatchError?: string
+  trigger?: WakeTriggerSnapshot
 }): string {
   const lines = [
     input.dispatchError ? '系统通知：Team 成员派发失败，需要你处理。' : '系统通知：Team 成员有新的异步进展。',
@@ -95,7 +102,18 @@ export function buildLeaderWakePrompt(input: {
     '不要使用 sleep、等待命令或轮询；如果还需要其他成员结果，请结束本轮，系统会在新进展到达时再次唤醒你。',
   )
 
-  return buildTeamLeaderWakePrompt(lines.join('\n'))
+  return withWakeTriggerSnapshot(buildTeamLeaderWakePrompt(lines.join('\n')), input.trigger)
+}
+
+/**
+ * 触发内容快照追加在**整条唤醒 prompt 的末尾**（含固定话术之后）：
+ * 多封唤醒在同一合并窗口里被拼接时，Master 仍能从尾段直接看到"这一轮为什么被叫醒"。
+ * 原话术一字不改，快照只追加。
+ */
+function withWakeTriggerSnapshot(prompt: string, snapshot?: WakeTriggerSnapshot): string {
+  const parts = [...(snapshot?.taskLines ?? []), ...(snapshot?.mailboxLines ?? [])]
+  if (parts.length === 0) return prompt
+  return [prompt, '', '---', '触发内容快照（系统自动附加）：', ...parts].join('\n')
 }
 
 export function buildTeamLeaderWakePrompt(content: string): string {

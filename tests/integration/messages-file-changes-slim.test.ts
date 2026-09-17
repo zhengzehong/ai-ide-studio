@@ -62,8 +62,12 @@ describe('messages file changes slimming (076)', () => {
     expect(read('m-seg')!.length).toBeLessThan(segmented.length / 10)
   })
 
-  it('is registered as migration 076 at the end of the chain', () => {
-    expect(migrations.at(-1)).toMatchObject({ version: '076', name: 'messages_file_changes_slim' })
+  it('is registered as migration 076 in the chain (后续迁移追加在它之后，版本号不变)', () => {
+    // 原断言是"076 在链尾"；团队邮箱线隔离合入后追加了 077（team_mailbox.conversation_id），
+    // 链尾不再是 076 —— 改钉"076 注册且版本号唯一"，避免后续任何新迁移都会打红这条用例。
+    const registered = migrations.filter((migration) => migration.version === '076')
+    expect(registered).toHaveLength(1)
+    expect(registered[0]).toMatchObject({ version: '076', name: 'messages_file_changes_slim' })
   })
 })
 

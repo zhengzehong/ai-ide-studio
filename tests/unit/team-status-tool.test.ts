@@ -9,6 +9,7 @@ import { resolve } from 'node:path'
 import { agentStore } from '../../src/store/agents.js'
 import { closeDatabase, initDatabase } from '../../src/store/db.js'
 import { projectStore } from '../../src/store/projects.js'
+import { sessionStore } from '../../src/store/sessions.js'
 import { taskStore } from '../../src/store/tasks.js'
 import { teamMailboxStore, teamMemberStore } from '../../src/store/teams.js'
 import { teamConversationStore } from '../../src/store/team-conversations.js'
@@ -57,6 +58,7 @@ interface TeamStatusPayload {
   runningMembers: number
   allIdle: boolean
   generatedAt: string
+  lineScope: { conversationId: string; title: string; via: string; defaultConversationId: string | null }
   members: MemberStatus[]
 }
 
@@ -198,47 +200,55 @@ describe('team.status', () => {
     expect(member.taskLastUpdateAt! >= taskStore.get(doneTask.id)!.created_at).toBe(true)
   })
 
-  test('成员跨两条线各有格子：cells 长度 2，任一 running → 成员 running', async () => {
+  test('线隔离：成员在另一条线有格子 → 本线视图只有本线格子，他线活动不外泄', async () => {
     const fixture = createTeamFixture()
     const second = createTeamConversation(fixture.teamId, '二线')
-    const grids = teamConversationStore.listMembers(second.conversation.id)
-      .filter((row) => row.member_id === fixture.memberId)
-      .map((row) => row.session_id)
-    const otherSessionId = grids[0]!
+    const otherSessionId = teamConversationStore.listMembers(second.conversation.id)
+      .find((row) => row.member_id === fixture.memberId)!.session_id as string
     vi.spyOn(sessionManager, 'isPromptActive').mockImplementation((sessionId: string) => sessionId === otherSessionId)
 
     const payload = await callStatus(fixtureContext(fixture))
     const member = payload.members.find((item) => item.memberId === fixture.memberId)!
 
-    expect(member.cells).toHaveLength(2)
-    expect(member.cells.map((cell) => cell.conversationTitle).sort()).toEqual(['二线', '首线'])
-    expect(member.cells.find((cell) => cell.sessionId === otherSessionId)!.state).toBe('running')
-    expect(member.runtimeState).toBe('running')
+    expect(payload.lineScope).toMatchObject({ conversationId: fixture.conversationId, title: '首线', via: 'session' })
+    expect(member.cells).toHaveLength(1)
+    expect(member.cells[0]).toMatchObject({
+      conversationId: fixture.conversationId,
+      conversationTitle: '首线',
+      sessionId: fixture.memberSessionId,
+    })
+    // 二线格子在跑 → 本线看不到（v3：跨线聚合只属人的视野，见 UI 团队面板）
+    expect(member.runtimeState).toBe('idle')
+    expect(payload.runningMembers).toBe(0)
   })
 
-  test('排队/在飞按"primary + 全部格子"聚合：第二条线的格子有排队也不漏（F1 回放）', async () => {
+  test('同线聚合不回归：本线格子排队/在飞照常可见（他线不计入）', async () => {
     const fixture = createTeamFixture()
     const second = createTeamConversation(fixture.teamId, '二线')
-    // 二线的格子 = 该成员在第二条线上的派发目标（与 primary 不同的 session）。
     const secondCellSessionId = teamConversationStore.listMembers(second.conversation.id)
       .find((row) => row.member_id === fixture.memberId)!.session_id as string
-    expect(secondCellSessionId).not.toBe(fixture.memberSessionId)
-
-    // 成员在二线忙：派发只能排队（在飞/深度都发生在二线格子，不在 primary）。
     vi.spyOn(sessionManager, 'isPromptActive').mockReturnValue(true)
     vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue()
-    for (const content of ['二线第一条', '二线第二条']) {
+    // 他线（二线）格子忙：派发排在二线格子上
+    for (const content of ['二线第一条', '二线第二条', '二线第三条']) {
       expect(dispatchMemberPrompt({
         teamId: fixture.teamId, memberId: fixture.memberId, sessionId: secondCellSessionId, prompt: content,
+      })).toBe('queued')
+    }
+    // 本线（首线）格子忙：派发排在首线格子上
+    for (const content of ['首线第一条', '首线第二条']) {
+      expect(dispatchMemberPrompt({
+        teamId: fixture.teamId, memberId: fixture.memberId, sessionId: fixture.memberSessionId, prompt: content,
       })).toBe('queued')
     }
 
     const payload = await callStatus(fixtureContext(fixture))
     const member = payload.members.find((item) => item.memberId === fixture.memberId)!
+
     expect(member.hasPendingMemberPrompt).toBe(2)
   })
 
-  test('在飞聚合：回合跑在非 primary 格子上也能看到', async () => {
+  test('线隔离：他线格子在飞不计入本线成员的运行态/在飞', async () => {
     const fixture = createTeamFixture()
     const second = createTeamConversation(fixture.teamId, '二线')
     const secondCellSessionId = teamConversationStore.listMembers(second.conversation.id)
@@ -254,22 +264,50 @@ describe('team.status', () => {
 
     const payload = await callStatus(fixtureContext(fixture))
     const member = payload.members.find((item) => item.memberId === fixture.memberId)!
+
+    expect(member.isMemberPromptInFlight).toBe(false)
+    expect(member.runtimeState).toBe('idle')
+    expect(payload.allIdle).toBe(true)
+  })
+
+  test('线隔离：他线成员的格子不进本线成员行，本线成员照常聚合运行态', async () => {
+    const fixture = createTeamFixture()
+    const runningSessionIds = new Set<string>()
+    vi.spyOn(sessionManager, 'isPromptActive').mockImplementation((sessionId: string) => runningSessionIds.has(sessionId))
+    vi.spyOn(sessionManager, 'enqueuePrompt').mockImplementation(() => new Promise(() => undefined))
+    // 本线（首线）格子在飞：线内聚合照常
+    expect(dispatchMemberPrompt({
+      teamId: fixture.teamId, memberId: fixture.memberId, sessionId: fixture.memberSessionId, prompt: '首线干活',
+    })).toBe('accepted')
+    runningSessionIds.add(fixture.memberSessionId)
+
+    const payload = await callStatus(fixtureContext(fixture))
+    const member = payload.members.find((item) => item.memberId === fixture.memberId)!
+
     expect(member.isMemberPromptInFlight).toBe(true)
     expect(member.runtimeState).toBe('running')
+    expect(payload.runningMembers).toBe(1)
   })
 
   test('排序：同为非 leader（异角色）时按名字升序（F4）', async () => {
     vi.spyOn(sessionManager, 'isPromptActive').mockReturnValue(false)
     const fixture = createTeamFixture()
-    // 伪造一条异角色成员（role 不在 leader/member 二值内），确保兜底分支走 name 比较。
+    // 伪造两条异角色成员（role 不在 leader/member 二值内），确保兜底分支走 name 比较；
+    // 线隔离后成员可见性看"本线有没有格子"，故两名观察者成员要有本线格子（session 需真实存在，格子对 sessions 有外键）。
+    const zetaAgent = agentStore.create({ name: 'Zeta', type: 'observer', runtime: 'mock', projectId: fixture.projectId })
+    const alphaAgent = agentStore.create({ name: 'Alpha', type: 'observer', runtime: 'mock', projectId: fixture.projectId })
     const alpha = teamMemberStore.create({
-      teamId: fixture.teamId, projectId: fixture.projectId, agentId: 'agent-zzz',
-      sessionId: 'sess-zzz', name: 'Zeta', role: 'observer',
+      teamId: fixture.teamId, projectId: fixture.projectId, agentId: zetaAgent.id,
+      sessionId: sessionStore.create({ agentId: zetaAgent.id, projectId: fixture.projectId }).id,
+      name: 'Zeta', role: 'observer',
     })
     const beta = teamMemberStore.create({
-      teamId: fixture.teamId, projectId: fixture.projectId, agentId: 'agent-aaa',
-      sessionId: 'sess-aaa', name: 'Alpha', role: 'observer',
+      teamId: fixture.teamId, projectId: fixture.projectId, agentId: alphaAgent.id,
+      sessionId: sessionStore.create({ agentId: alphaAgent.id, projectId: fixture.projectId }).id,
+      name: 'Alpha', role: 'observer',
     })
+    teamConversationStore.addMember(fixture.conversationId, alpha.id, alpha.session_id)
+    teamConversationStore.addMember(fixture.conversationId, beta.id, beta.session_id)
 
     const payload = await callStatus(fixtureContext(fixture))
     const observerNames = payload.members.filter((item) => item.role === 'observer').map((item) => item.name)
